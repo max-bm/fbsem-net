@@ -19,7 +19,8 @@ class ForwardModel(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output: torch.Tensor):
-        return ctx.system_model.backward_model(grad_output).to(ctx.device).float()
+        return ctx.system_model.backward_model(
+            grad_output).to(ctx.device).float()
 
 
 class BackwardModel(torch.autograd.Function):
@@ -35,4 +36,5 @@ class BackwardModel(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output: torch.Tensor):
-        return ctx.system_model.forward_model(grad_output).to(ctx.device).float()
+        return ctx.system_model.forward_model(
+            grad_output).to(ctx.device).float()
