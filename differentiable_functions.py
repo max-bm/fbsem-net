@@ -15,7 +15,7 @@ class ForwardModel(torch.autograd.Function):
     def forward(ctx, img: torch.Tensor, system_model: PETSystemModel):
         ctx.device = 'cpu' if img.get_device == -1 else img.get_device
         ctx.system_model = system_model
-        return system_model.forward_model(img).to(ctx.device).float())
+        return system_model.forward_model(img).to(ctx.device).float()
 
     @staticmethod
     def backward(ctx, grad_output: torch.Tensor):
