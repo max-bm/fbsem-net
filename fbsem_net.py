@@ -4,7 +4,7 @@ maxwell.monro@kcl.ac.uk
 """
 
 import torch
-import torch.nn
+import torch.nn as nn
 from pet_system_model import PETSystemModel
 from differentiable_functions import ForwardModel, BackwardModel
 from torch_em import em_update
@@ -12,7 +12,7 @@ from utilities import DictDataset, nrmse
 import matplotlib.pyplot as plt
 
 def fbsem_fusion(out_em: torch.Tensor, out_reg: torch.Tensor,
-    inv_sens_img: torch.Tensor, beta: torch.Parameter):
+    inv_sens_img: torch.Tensor, beta: torch.nn.Parameter):
     """
     Function to compute fusion of output of EM update and of regulariser block.
     """
@@ -87,7 +87,7 @@ class FBSEMNet(nn.Module):
                 # definition
                 for b in range(self.batch_size):
                     # EM block
-                    out_em[b, 0, :, :] =
+                    out_em[b, 0, :, :] = \
                         em_update(img[b, 0, :, :], sino[b, 0, :, :],
                             sens_img, self.system_model)
                 # Reg block - PyTorch handles mini-batch in parallel (I think)
@@ -131,7 +131,7 @@ class FBSEMNet(nn.Module):
                 for b in range(self.batch_size):
                     for r in range(n_realisations):
                         # EM block
-                        out_em[b, 0, r, :, :] =
+                        out_em[b, 0, r, :, :] = \
                             em_update(img[b, 0, r, :, :], sino[b, 0, r, :, :],
                                 sens_img, self.system_model)
                         out_reg = self.regulariser(img[b, 0, r, :, :], mr)
