@@ -18,7 +18,7 @@ def em_update(img: torch.Tensor, sino: torch.Tensor, sens_img: torch.Tensor,
     forward_model = ForwardModel.apply
     backward_model = BackwardModel.apply
 
-    device = 'cpu' if theta.get_device() == -1 else theta.get_device()
+    device = 'cpu' if img.get_device() == -1 else img.get_device()
     forwardprojection = forward_model(img, system_model)
     fp_mask = (forwardprojection != 0)
     ratio_sino = torch.zeros_like(sino).to(device).float()
