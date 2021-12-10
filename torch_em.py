@@ -28,4 +28,4 @@ def em_update(img: torch.Tensor, sino: torch.Tensor, sens_img: torch.Tensor,
     updated_img = torch.zeros_like(img).to(device).float()
     updated_img[bp_mask] = \
         backprojection[bp_mask] * img[bp_mask] / sens_img[bp_mask]
-    return update
+    return updated_img
