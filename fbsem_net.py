@@ -9,7 +9,7 @@ import numpy as np
 from pet_system_model import PETSystemModel
 from differentiable_functions import ForwardModel, BackwardModel
 from torch_em import em_update
-from utilities import DictDataset, nrmse
+from utilities import DictDataset, nrmse, IdentityMapping, ZeroMapping
 import matplotlib.pyplot as plt
 
 def fbsem_fusion(out_em: torch.Tensor, out_reg: torch.Tensor,
@@ -20,33 +20,6 @@ def fbsem_fusion(out_em: torch.Tensor, out_reg: torch.Tensor,
     return 2 * out_em / (1 - beta**2 * inv_sens_img * out_reg + \
         torch.sqrt((1 - beta**2 * inv_sens_img * out_reg)**2 + \
             4 * beta**2 * inv_sens_img * out_em))
-
-
-class IdentityMapping(nn.Module):
-    """
-    Custom PyTorch identity mapping which has internal dummy variable
-    in_channels (for compatibility with other code).
-    """
-    def __init__(self, in_channels=1):
-        super(IdentityMapping, self).__init__()
-        self.in_channels = in_channels
-        self.Identity = nn.Identity()
-
-    def forward(self, img: torch.Tensor, mr=None):
-        return self.Identity(img)
-
-
-class ZeroMapping(nn.Module):
-    """
-    Custom PyTorch zero mapping which has internal dummy variable
-    in_channels (for compatibility with other code).
-    """
-    def __init__(self, in_channels=1):
-        super(ZeroMapping, self).__init__()
-        self.in_channels = in_channels
-
-    def forward(self, img: torch.Tensor, mr=None):
-        return img * 0.
 
 
 class FBSEMNet(nn.Module):
@@ -62,7 +35,7 @@ class FBSEMNet(nn.Module):
         self.batch_size = batch_size
         self.to_convergence = to_convergence
         self.register_parameter(name='beta', param=nn.Parameter(torch.rand(1),
-            requires_gard=True))
+            requires_grad=True))
         if isinstance(fixed_beta, float):
             self.beta.data = torch.Tensor([fixed_beta])
 
