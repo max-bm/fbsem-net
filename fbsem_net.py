@@ -5,6 +5,7 @@ maxwell.monro@kcl.ac.uk
 
 import torch
 import torch.nn as nn
+import numpy as np
 from pet_system_model import PETSystemModel
 from differentiable_functions import ForwardModel, BackwardModel
 from torch_em import em_update
@@ -98,7 +99,7 @@ class FBSEMNet(nn.Module):
 
         # Testing
         else:
-            if to_convergence:
+            if self.to_convergence:
                 mse_tracker = list()
             recon_dict = dict()
             recon_dict['test_nrmse'] = \
@@ -138,7 +139,7 @@ class FBSEMNet(nn.Module):
                 # Fusion block - parallelised in fusion function definition
                 temp_img = fbsem_fusion(out_em, out_reg,
                     inv_sens_img, self.beta)
-                if to_convergence:
+                if self.to_convergence:
                     rel_error = np.mean(np.abs(temp_img.detach().cpu().numpy() -
                         img.detach().cpu().numpy())) / np.mean(
                             img.detach().cpu().numpy())
