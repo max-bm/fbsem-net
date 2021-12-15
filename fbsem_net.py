@@ -24,7 +24,9 @@ def fbsem_fusion(out_em: torch.Tensor, out_reg: torch.Tensor,
 
 class FBSEMNet(nn.Module):
     """
-
+    Class to define FBSEM-Net architecture. Define forward function uniquely for 
+    training (i.e. target == None) and for testing (i.e. target != None) - this
+    handles multiple noisy realisations during testing and calculates NRMSE.
     """
     def __init__(self, system_model: PETSystemModel, regulariser, n_mods: int,
         batch_size: int, fixed_beta: float, to_convergence=False):
@@ -75,15 +77,18 @@ class FBSEMNet(nn.Module):
             if self.to_convergence:
                 mse_tracker = list()
             recon_dict = dict()
-            recon_dict['test_nrmse'] = \
-                recon_dict['bias-variance_wrt_ref'] = \
-                    recon_dict['bias-variance_wrt_gt'] = \
-                        np.array((np.zeros((self.n_mods, 1)),
-                            np.zeros((self.n_mods, 1))))
-            recon_dict['test_nrmse'][:] = np.nan
-            recon_dict['best_nrmse_wrt_ref'] = \
-                recon_dict['best_nrmse_wrt_gt'] = \
-                    np.Inf
+            recon_dict['nrmse_wrt_ref'] = np.zeros((self.n_mods, 1))
+            recon_dict['nrmse_wrt_gt'] = np.zeros((self.n_mods, 1))
+            recon_dict['bias_wrt_ref'] = np.zeros((self.n_mods, 1))
+            recon_dict['sd_wrt_ref'] = np.zeros((self.n_mods, 1))
+            recon_dict['bias_wrt_gt'] = np.zeros((self.n_mods, 1))
+            recon_dict['sd_wrt_gt'] = np.zeros((self.n_mods, 1))
+            recon_dict['nrmse_wrt_ref'][:] = np.nan
+            recon_dict['nrmse_wrt_gt'][:] = np.nan
+            recon_dict['bias_wrt_ref'][:] = np.Inf
+            recon_dict['sd_wrt_ref'][:] = np.Inf
+            recon_dict['bias_wrt_gt'][:] = np.Inf
+            recon_dict['sd_wrt_gt'][:] = np.Inf
 
             n_realisations = sino.shape[2]
             sens_img = self.system_model.backward_model(
@@ -123,26 +128,28 @@ class FBSEMNet(nn.Module):
                         break
                 img = temp_img
 
-                recon_dict['test_nrmse'][0, i], \
-                    recon_dict['bias-variance_wrt_ref'][0, i], \
-                        recon_dict['bias-variance_wrt_ref'][1, i] = \
+                recon_dict['nrmse_wrt_ref'][i], \
+                    recon_dict['bias_wrt_ref'][i], \
+                        recon_dict['sd_wrt_ref'][i] = \
                             nrmse(img, target[0])
-                if recon_dict['test_nrmse'][0, i] == \
-                    min(recon_dict['test_nrmse'][0, :]):
+                if recon_dict['nrmse_wrt_ref'][i] == \
+                    min(recon_dict['nrmse_wrt_ref'][:]):
                     recon_dict['best_nrmse_wrt_ref'] = \
-                        recon_dict['test_nrmse'][0, i]
+                        recon_dict['nrmse_wrt_ref'][i]
                     recon_dict['best_mod_wrt_ref'] = i + 1
                     recon_dict['best_recon_wrt_ref'] = \
                         img.detach().cpu().numpy()
-                recon_dict['test_nrmse'][1, i], \
-                    recon_dict['bias-variance_wrt_gt'][0, i], \
-                        recon_dict['bias-variance_wrt_gt'][1, i] = \
+                recon_dict['nrmse_wrt_gt'][i], \
+                    recon_dict['bias_wrt_gt'][i], \
+                        recon_dict['sd_wrt_gt'][i] = \
                             nrmse(img, target[1])
-                if recon_dict['test_nrmse'][1, i] == \
-                    min(recon_dict['test_nrmse'][1, :]):
+                if recon_dict['nrmse_wrt_gt'][i] == \
+                    min(recon_dict['nrmse_wrt_gt'][:]):
                     recon_dict['best_nrmse_wrt_gt'] = \
-                        recon_dict['test_nrmse'][1, i]
+                        recon_dict['nrmse_wrt_gt'][i]
                     recon_dict['best_mod_wrt_gt'] = i + 1
                     recon_dict['best_recon_wrt_gt'] = \
                         img.detach().cpu().numpy()
             return img, recon_dict
+
+
