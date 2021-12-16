@@ -3,6 +3,7 @@ Author: Maxwell Buckmire-Monro
 maxwell.monro@kcl.ac.uk
 """
 
+from typing import final
 import torch
 import torch.nn as nn
 import numpy as np
@@ -11,6 +12,9 @@ from differentiable_functions import ForwardModel, BackwardModel
 from torch_em import em_update
 from utilities import DictDataset, nrmse, IdentityMapping, ZeroMapping
 import matplotlib.pyplot as plt
+import copy
+import time
+import random
 
 def fbsem_fusion(out_em: torch.Tensor, out_reg: torch.Tensor,
     inv_sens_img: torch.Tensor, beta: torch.nn.Parameter):
@@ -29,7 +33,7 @@ class FBSEMNet(nn.Module):
     handles multiple noisy realisations during testing and calculates NRMSE.
     """
     def __init__(self, system_model: PETSystemModel, regulariser, n_mods: int,
-        batch_size: int, fixed_beta: float, to_convergence=False):
+        batch_size: int, fixed_beta = False, to_convergence=False):
         super(FBSEMNet, self).__init__()
         self.system_model = system_model
         self.regulariser = regulariser
@@ -41,7 +45,8 @@ class FBSEMNet(nn.Module):
         if isinstance(fixed_beta, float):
             self.beta.data = torch.Tensor([fixed_beta])
 
-    def forward(self, sino: torch.Tensor, mr=None, device='cpu', target=None):
+    def forward(self, sino: torch.Tensor, mr=None, target=None):
+        device = 'cpu' if sino.get_device() == -1 else sino.get_device()
         # Training/validation
         if target is None:
             # Generate sensitivity image and its reciprocal
@@ -150,6 +155,106 @@ class FBSEMNet(nn.Module):
                     recon_dict['best_mod_wrt_gt'] = i + 1
                     recon_dict['best_recon_wrt_gt'] = \
                         img.detach().cpu().numpy()
+            
+            recon_dict['final_recon'] = img.detach().cpu().numpy()
+            recon_dict['final_nrmse_wrt_ref'] = nrmse(img, target[0])
+            recon_dict['final_nrmse_wrt_gt'] = nrmse(img, target[1])
             return img, recon_dict
+
+
+def train_fbsem(model, train_loader, val_loader, model_name='', save_dir='',
+                epochs=50, lr=3e-4, mr_scale=1):
+    """
+    
+    """
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    model = model.to(device)
+    loss_func = nn.MSELoss()
+    optimiser = torch.optim.Adam(model.parameters(), lr=lr)
+
+    train_loss = list()
+    val_loss = list()
+    beta_var = list()
+    training_models = list()
+    best_model = copy.deepcopy(model)
+
+    t0 = time.time()
+    for e in range(epochs):
+        t1 = time.time()
+        epoch_train_loss = list()
+        epoch_val_loss = list()
+
+        # Training loop
+        model.train()
+        for i, sample in enumerate(train_loader):
+            optimiser.zero_grad()
+            # We choose a random sinogram from all possible noisy realisations
+            # as a form of data augmentation to artificially increase the size
+            # of the training set. This should help train the network to be 
+            # robust to noise in the data.
+            n_realisations = sample['noisy_sino'].shape[2]
+            idx = random.randint(0, n_realisations - 1)
+            sino = sample['noisy_sino'][:, :, idx, :, :].float().to(device)
+            target = sample['HD_target'].float().to(device)
+            if model.regulariser.in_channels == 1:
+                mr = None
+            else:
+                mr = sample['mr'].float().to(device) 
+                mr = mr_scale * mr / mr.max*()
+            
+            output = model(sino, mr)
+            loss = loss_func(output, target)
+            epoch_train_loss.append(loss.item())
+            loss.backward()
+            optimiser.step()
+
+        train_loss.append(np.mean(epoch_train_loss))
+        print('Epoch {}/{}: Training loss = {}, Time/epoch = {}s.'.format(e+1, 
+            epochs, round(train_loss[-1], 6), round(time.time()-t1, 2)))
+        print('beta = {}.'.format(model.beta.clone().detach().cpu().numpy()))
+        beta_var.append(model.beta.clone().detach().cpu().numpy())
+
+        # Save model to list of training models
+        checkpt = dict()
+        checkpt['state_dict'] = model.state_dict()
+        checkpt['beta'] = model.beta.data
+        checkpt['beta_var'] = beta_var
+        training_models.append(checkpt)
+
+        # Validation loop
+        with torch.no_grad():
+            model.eval()
+            for i, sample in enumerate(val_loader):
+                # We validate on a static set, so now we use the same noisy
+                # realisation each time
+                sino = sample['noisy_sino'][:, :, 0, :, :].float().to(device)
+                target = sample['HD_target'].float().to(device)
+                if model.regulariser.in_channels == 1:
+                    mr = None
+                else:
+                    mr = sample['mr'].float().to(device) 
+                    mr = mr_scale * mr / mr.max*()
+                
+                output = model(sino, mr)
+                loss = loss_func(output, target)
+                epoch_val_loss.append(loss.item())
+
+            val_loss.append(np.mean(epoch_val_loss))
+            print('Validation loss = {}.'.format(round(val_loss[-1], 6)))
+
+        if e > 1 and val_loss[-1] == min(val_loss):
+            print('New best model: epoch {}'.format(e+1))
+            best_model = copy.deepcopy(model)
+
+    # Training finished
+    print('Training time: {}min'.format(round((time.time() - t0) / 60, 2)))
+    final_checkpt = dict()
+    final_checkpt['best_model'] = best_model.state_dict()
+    final_checkpt['train_loss'] = train_loss
+    final_checkpt['val_loss'] = val_loss
+    final_checkpt['beta_var'] = beta_var
+    final_checkpt['training_models'] = training_models
+    torch.save(final_checkpt, '{}{}_trained_{}-epochs.pth'.format(save_dir, 
+        model_name, epochs))
 
 
