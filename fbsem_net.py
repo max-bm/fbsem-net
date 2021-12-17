@@ -165,7 +165,8 @@ class FBSEMNet(nn.Module):
 def train_fbsem(model, train_loader, val_loader, model_name='', save_dir='',
                 epochs=50, lr=3e-4, mr_scale=1):
     """
-    
+    Function for training FBSEM-Net, with concurrent training and validation
+    loops. 
     """
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
@@ -256,5 +257,41 @@ def train_fbsem(model, train_loader, val_loader, model_name='', save_dir='',
     final_checkpt['training_models'] = training_models
     torch.save(final_checkpt, '{}{}_trained_{}-epochs.pth'.format(save_dir, 
         model_name, epochs))
+    return best_model
 
 
+def test_fbsem(model, test_loader, model_name='', save_dir='', mr_scale=1):
+    """
+    Function for testing FBSEM-Net.
+    """
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    model = model.to(device)
+    with torch.no_grad():
+        model.eval()
+        for i, sample in enumerate(test_loader):
+            # We validate on a static set, so now we use the same noisy
+            # realisation each time
+            sino = sample['noisy_sino'].float().to(device)
+            target = sample['HD_target'].float().to(device)
+            ground_truth = sample['pet_gt'].float().to(device)
+            if model.regulariser.in_channels == 1:
+                mr = None
+            else:
+                mr = sample['mr'].float().to(device) 
+                mr = mr_scale * mr / mr.max*()
+
+            output, test_results = model(sino, mr, target=(target, 
+                ground_truth))
+            test_results['noisy_sino'] = sino
+            test_results['HD_target'] = target.detach().cpu().numpy()
+            test_results['pet_gt'] = ground_truth.detach().cpu().numpy()
+            test_results['HD_counts'] = sample['HD_counts']
+            test_results['LD_counts'] = sample['LD_counts']
+            test_results['mlem_iters'] = sample['mlem_iters']
+            test_results['factor'] = sample['factor']
+            test_results['final_recon'] = output.detach().cpu().numpy()
+            test_results['final_nrmse_wrt_ref'] = nrmse(output, target)
+            test_results['final_nrmse_wrt_gt'] = nrmse(output, ground_truth)
+
+    return test_results
+    
