@@ -6,6 +6,7 @@ maxwell.monro@kcl.ac.uk
 import torch
 import torch.nn as nn
 import numpy as np
+import matplotlib.pyplot as plt
 
 def nrmse(recons: torch.Tensor, target: torch.Tensor):
     """
@@ -62,3 +63,50 @@ class ZeroMapping(nn.Module):
 
     def forward(self, img: torch.Tensor, mr=None):
         return img * 0.
+
+
+def plot_test_results(test_results):
+    """
+    
+    """
+    ld_counts = test_results['LD_counts'][0].numpy()[0]
+    best_nrmse_wrt_ref = np.round(test_results['best_nrmse_wrt_ref'][0] * 100, 3)
+    best_nrmse_wrt_gt = np.round(test_results['best_nrmse_wrt_gt'][0] * 100, 3)
+    final_nrmse_wrt_ref = np.round(test_results['final_nrmse_wrt_ref'][0] * 100, 3)
+    final_nrmse_wrt_gt = np.round(test_results['final_nrmse_wrt_gt'][0] * 100, 3)
+    final_recon_img = test_results['final_recon'][0, 0, 0, 20:-20, 20:-20]
+    ground_truth = test_results['pet_gt'][0, 0, 20:-20, 20:-20]
+    nrmse_wrt_ref = test_results['nrmse_wrt_ref']
+    nrmse_wrt_gt = test_results['nrmse_wrt_gt']
+    n_mods = len(nrmse_wrt_ref)
+
+    fig, ax = plt.subplots(figsize=(16, 10), nrows=1, ncols=2)
+    ax[0].imshow(final_recon_img, vmax=ground_truth.max(), cmap='Greys')
+    ax[0].set_title(
+        'Final reconstruction\nNRMSE wrt HQ Ref = {}\nNRMSE wrt GT = {}\nCounts = {}k'.format(
+            final_nrmse_wrt_ref, final_nrmse_wrt_gt, int(round(ld_counts / 1e3))))
+    ax[1].plot(np.arange(n_mods) + 1, nrmse_wrt_ref, label='HQ Reference')
+    ax[1].plot(np.arange(n_mods) + 1, nrmse_wrt_gt, label='Ground Truth')
+    ax[1].set_xlim(left=1)
+    ax[1].set_ylim(bottom=0)
+    ax[1].legend(title='wrt')
+    ax[1].set_title(
+        'NRMSE vs. module\nBest NRMSE wrt HQ Ref = {}\nBest NRMSE wrt GT = {}'.format(
+            best_nrmse_wrt_ref, best_nrmse_wrt_gt))
+    plt.show()
+
+
+
+
+    # fig, (ax1, ax2) = plt.subplots(figsize=(16, 10), ncols=2)
+    # ax1.set_title('NRMSE (%) vs HD reference')
+    # ax1.plot(np.arange(len(test_results['test_nrmse'][0, :])) + 1, test_results['test_nrmse'][0, :] * 100)
+    # ax1.set_xlim(left=1)
+    # ax1.set_ylim(bottom=0)
+    # ax2.set_title('NRMSE (%) vs GT')
+    # ax2.plot(np.arange(len(test_results['test_nrmse'][1, :])) + 1, test_results['test_nrmse'][1, :] * 100)
+    # ax2.set_xlim(left=1)
+    # ax2.set_ylim(bottom=0)
+    # plt.show()
+    # fig.savefig(save_dir + model_name + '_nrmse.png')
+

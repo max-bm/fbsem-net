@@ -293,5 +293,6 @@ def test_fbsem(model, test_loader, model_name='', save_dir='', mr_scale=1):
             test_results['final_nrmse_wrt_ref'] = nrmse(output, target)
             test_results['final_nrmse_wrt_gt'] = nrmse(output, ground_truth)
 
+    torch.save(test_results, save_dir + model_name + '_test_results.pth')
     return test_results
     
