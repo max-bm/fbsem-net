@@ -151,3 +151,62 @@ class MSA(nn.Module):
         return out
 
 
+class MLP(nn.Module):
+    """
+    Multilayer perceptron for Transformer block.
+
+    Parameters
+    ----------
+    in_features: int
+        Number of input features.
+    
+    hidden_features: int
+        Number of nodes in the hidden layer.
+
+    out_features: int
+        Number of output features.
+
+    drop: float
+        Dropout probability.
+    Attributes
+    ----------
+    fc1, fc2: nn.Linear
+        Fully connected layers.
+    act: nn.GELU
+        GELU activation function.
+    drop: nn.Drouput
+        Dropout layer.
+    """
+    def __init__(self, in_features, hidden_featues=None, out_features=None, act_layer=nn.GELU, drop=0.):
+        super(MLP, self).__init__()
+        hidden_features = hidden_featues or in_features
+        out_features = out_features or in_features
+        self.fc1 = nn.Linear(in_features, hidden_featues)
+        self.act = act_layer()
+        self.fc2 = nn.Linear(hidden_featues, out_features)
+        self.drop = nn.Dropout(drop)
+
+    def forward(self, x):
+        """
+        Forward pass of MLP.
+
+        Parameteres
+        -----------
+        x: torch.Tensor
+            Input tensor.
+            Shape: (batch_size, n_tkns, in_features).
+
+        Returns
+        -------
+        torch.Tensor
+            Output tensor.
+            Shape: (batch_size, n_tkns, out_features).
+        """
+        x = self.fc1(x) # (batch_size, n_tkns, hidden_features)
+        x = self.act(x)
+        x = self.drop(x)
+        x = self.fc2(x) # (batch_size, n_tkns, out_features)
+        x = self.drop(x)
+        return x
+
+
