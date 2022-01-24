@@ -351,7 +351,6 @@ class VisionTransformer(nn.Module):
             'Reconstructed' image.
             Shape: (batch_size, in_channels, img_size, img_size).
         """
-        batch_size = x.shape[0]
         x = self.patch_embed(x) # (batch_size, n_tkns, embedding_dim)
         x = x + self.pos_embed # (batch_size, n_tkns, embedding_dim)
         x = self.pos_drop(x)
