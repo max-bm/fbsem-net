@@ -168,6 +168,7 @@ class MLP(nn.Module):
 
     drop: float
         Dropout probability.
+
     Attributes
     ----------
     fc1, fc2: nn.Linear
@@ -177,13 +178,13 @@ class MLP(nn.Module):
     drop: nn.Drouput
         Dropout layer.
     """
-    def __init__(self, in_features, hidden_featues=None, out_features=None, act_layer=nn.GELU, drop=0.):
+    def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.):
         super(MLP, self).__init__()
-        hidden_features = hidden_featues or in_features
+        hidden_features = hidden_features or in_features
         out_features = out_features or in_features
-        self.fc1 = nn.Linear(in_features, hidden_featues)
+        self.fc1 = nn.Linear(in_features, hidden_features)
         self.act = act_layer()
-        self.fc2 = nn.Linear(hidden_featues, out_features)
+        self.fc2 = nn.Linear(hidden_features, out_features)
         self.drop = nn.Dropout(drop)
 
     def forward(self, x):
@@ -209,4 +210,63 @@ class MLP(nn.Module):
         x = self.drop(x)
         return x
 
+
+class TransformerEncoder(nn.Module):
+    """
+    Transformer encorder block.
+
+    Parameters
+    ----------
+    embedding_dim: int
+        Embedding dimension of 'tokens'.
+    
+    n_heads: int
+        Number of attention heads.
+
+    mlp_ratio: float
+        Determines size of hidden dimension of MLP w.r.t embedding dim.
+
+    qkv_bias: bool
+        Toggle for inlcusion of bias in query, key and value projections.
+
+    drop, attn_drop: float
+        Dropout probabilities.
+
+    Attributes
+    ----------
+    norm1, norm2: nn,LayerNorm
+        Layer normalisation.
+
+    attn: MSA
+        Multiheaded self-attention module.
+
+    mlp: MLP
+        Multilayer perceptron module.
+    """
+    def __init__(self, embedding_dim, n_heads, mlp_ratio=4., qkv_bias=True, drop=0., attn_drop=0.):
+        super(TransformerEncoder, self).__init__()
+        self.norm1 = nn.LayerNorm(embedding_dim, 1e-6)
+        self.attn = MSA(embedding_dim, n_heads, qkv_bias, attn_drop, drop)
+        self.norm2 = nn.LayerNorm(embedding_dim, 1e-6)
+        self.mlp = MLP(embedding_dim, int(embedding_dim * mlp_ratio), embedding_dim)
+
+    def forward(self, x):
+        """
+        Forward pass of Transformer encoder.
+
+        Parameters
+        ----------
+        x: torch.Tensor
+            Input tensor.
+            Shape: (batch_size, n_tkns, embedding_dim).
+
+        Returns
+        -------
+        torch.Tensor
+            Output tensor.
+            Shape: (batch_size, n_tkns, embedding_dim).
+        """
+        x = x + self.attn(self.norm1(x)) # First residual 'block'
+        x = x + self.mlp(self.norm2(x)) # Second residual 'block'
+        return x
 
