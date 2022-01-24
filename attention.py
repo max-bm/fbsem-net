@@ -4,6 +4,7 @@ maxwell.monro@kcl.ac.uk
 """
 
 import torch
+from torch._C import Value
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -33,7 +34,7 @@ class PatchEmbedding(nn.Module):
     embedding_proj: nn.Conv2d
         Convolutional layer that performs splitting and embedding.
     """
-    def __init__(self, img_size=144, patch_size=4, in_channels=1, embedding_dim=96):
+    def __init__(self, img_size=144, patch_size=16, in_channels=1, embedding_dim=256):
         super(PatchEmbedding, self).__init__()
         self.img_size = img_size
         self.patch_size = patch_size
@@ -268,5 +269,98 @@ class TransformerEncoder(nn.Module):
         """
         x = x + self.attn(self.norm1(x)) # First residual 'block'
         x = x + self.mlp(self.norm2(x)) # Second residual 'block'
+        return x
+
+
+class VisionTransformer(nn.Module):
+    """
+    Vision Transformer network architecture.
+
+    Parameters
+    ----------
+    img_size: int
+        Height and width of square input image.
+
+    patch_size: int
+        Height and width of square patch size.
+
+    in_channels: int
+        Number of input channels. Greyscale = 1.
+    
+    embedding_dim: int
+        Dimensionality of token/patch embeddings.
+
+    depth: int
+        Number of Transformer encoder blocks.
+
+    n_heads: int
+        Number of attention heads per block. (Could this vary from block to block?)
+
+    mlp_ratio: float
+        Determines size of hidden dimension of MLP w.r.t embedding dim.
+
+    qkv_bias: bool
+        Toggle for inlcusion of bias in query, key and value projections.
+
+    drop, attn_drop: float
+        Dropout probabilities.
+
+    Attributes
+    ----------
+    patch_embed: PatchEmbedding
+        Layer to compute patch embedding of image.
+
+    pos_embed: nn.Parameter
+        Learned positional embedding of patches.
+
+    pos_drop: nn.Dropout
+        Drouput layer for positional embedding.
+
+    blocks: nn.ModuleList
+        List of blocks.
+
+    norm: nn.LayerNorm
+        Layer normalisation.
+
+    patch_unembed: PatchUnembedding
+        Layer to merge patches into reconstructed image.
+    """
+    def __init__(self, img_size=144, patch_size=16, in_channels=1, embedding_dim=256, depth=12, 
+                 n_heads=12, mlp_ratio=4., qkv_bias=True, drop=0., attn_drop=0.):
+        super(VisionTransformer, self).__init__()
+        self.patch_embed = PatchEmbedding(img_size, patch_size, in_channels, embedding_dim)
+        self.pos_embed = nn.Parameter(torch.zeros(1, self.patch_embed.n_patches, embedding_dim))
+        self.pos_drop = nn.Dropout(drop)
+        self.blocks = nn.ModuleList(
+            [TransformerEncoder(embedding_dim, n_heads, mlp_ratio, qkv_bias, drop, attn_drop) for i in range(depth)])
+        self.norm = nn.LayerNorm(embedding_dim, 1e-6)
+
+    def forward(self, x):
+        """
+        Forward pass of image through Vision Transformer.
+
+        Parameters
+        ----------
+        x: torch.Tensor
+            Input image.
+            Shape: (batch_size, in_channels, img_size, img_size).
+
+        Returns
+        -------
+        torch.Tensor
+            'Reconstructed' image.
+            Shape: (batch_size, in_channels, img_size, img_size).
+        """
+        batch_size = x.shape[0]
+        x = self.patch_embed(x) # (batch_size, n_tkns, embedding_dim)
+        x = x + self.pos_embed # (batch_size, n_tkns, embedding_dim)
+        x = self.pos_drop(x)
+
+        for block in self.blocks:
+            x = block(x)
+
+        x = self.norm(x)
+        x = self.patch_unembed(x)
+
         return x
 
