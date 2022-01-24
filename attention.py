@@ -54,19 +54,75 @@ class PatchEmbedding(nn.Module):
         ----------
         img: torch.Tensor
             Input image to be split into embedded patches.
-            Shape: (batch_size, in_channels, img_size, img_size)
+            Shape: (batch_size, in_channels, img_size, img_size).
 
         Returns
         -------
         torch.Tensor
             Embedded patches.
-            Shape: (batch_size, n_patches, embedding_dim)
+            Shape: (batch_size, n_patches, embedding_dim).
         """
         out = self.embedding_proj(img) # (batch_size, embedding_dim, n_patches ** 0.5, n_patches ** 0.5)
         out = out.flatten(2) # (batch_size, embedding_dim, n_patches)
         out = out.transpose(1, 2) # (batch_size, n_patches, embedding_dim)
 
         return out
+
+
+class PatchMerging(nn.Module):
+    """
+    Merges separate image patches/tokens into single image.
+
+    Parameters
+    ----------
+    img_size: int
+        Size of the (square) image.
+    
+    patch_size: int
+        Size of the (square) patches.
+
+    in_channels: int
+        Number of input channels. Greyscale = 1.
+
+    embedding_dim: int
+        Size of arbitrary embedding dimension.
+    
+    Attributes
+    ----------
+
+
+    """
+    def __init__(self, img_size=144, patch_size=16, in_channels=1, embedding_dim=256):
+        super(PatchMerging, self).__init__()
+        self.img_size = img_size
+        self.patch_size = patch_size
+        self.in_channels = in_channels
+        self.n_patches = (img_size // patch_size) ** 2
+        self.unembedding_proj = nn.Linear(embedding_dim, in_channels * patch_size**2)
+
+    def forward(self, x):
+        """
+        Forward pass.
+
+        Parameters
+        ----------
+        x: torch.Tensor
+            Embedded image tokens to merge into image.
+            Shape: (batch_size, n_patches, embedding_dim).
+
+        Returns
+        -------
+        torch.Tensor
+            Reconstructed image.
+            Shape: (batch_size, in_channels, img_size, img_size).
+        """
+        batch_size = x.shape[0]
+        x = self.unembedding_proj(x) # Unembed tokens. (batch_size, n_patches, in_channels * patch_size**2)
+        x = x.view(batch_size, self.in_channels, self.img_size, self.img_size)
+        x = x.unfold(2, self.patch_size, self.patch_size).unfold(3, self.patch_size, self.patch_size)
+        x = x.reshape(batch_size, self.in_channels, self.img_size, self.img_size)
+
+        return x
 
 
 class MSA(nn.Module):
@@ -354,12 +410,14 @@ class VisionTransformer(nn.Module):
         x = self.patch_embed(x) # (batch_size, n_tkns, embedding_dim)
         x = x + self.pos_embed # (batch_size, n_tkns, embedding_dim)
         x = self.pos_drop(x)
+        shortcut = x # Residual connection around Transformer encoder blocks
 
         for block in self.blocks:
             x = block(x)
 
-        x = self.norm(x)
-        x = self.patch_unembed(x)
+        x = x + shortcut
+        x = self.norm(x) # LayerNorm not in 16x16 paper
+        x = self.patch_unembed(x) # Marge patches back together
 
         return x
 
