@@ -66,3 +66,88 @@ class PatchEmbedding(nn.Module):
         out = out.transpose(1, 2) # (batch_size, n_patches, embedding_dim)
 
         return out
+
+
+class MSA(nn.Module):
+    """
+    Multi-headed self-attention mechanism.
+
+    Parameters
+    ----------
+    embedding_dim: int
+        Embedding dimension of 'tokens'.
+
+    n_heads: int
+        Number of attention heads.
+
+    qkv_bias: bool
+        Toggle for inclusion of bias in query, key and value projection.
+
+    attn_drop: float
+        Dropout probability of query, key and value tensors.
+
+    proj_drop: float
+        Dropout probability of output.
+
+    Attributes
+    ----------
+    qk_scale: float
+        Normalising constant for qk dot product.
+
+    qkv: nn.Linear
+        Linear projection for query, key and value tensors.
+
+    proj: nn.Linear
+        Linear mapping for mapping concatenated outputs of attentions heads into new space.
+
+    attn_drop, proj_drop: nn.Dropout
+        Dropout layers.
+    """
+    def __init__(self, embedding_dim, n_heads=12, qkv_bias=True, attn_drop=0., proj_drop=0.):
+        super(MSA, self).__init__()
+        self.embedding_dim = embedding_dim
+        self.n_heads = n_heads
+        self.head_dim = embedding_dim // n_heads # Defined this way so that concatenated has same dim as input.
+        self.scale = self.head_dim ** -0.5
+
+        self.qkv = nn.Linear(embedding_dim, embedding_dim*3, bias=qkv_bias) # Could be written as 3 separate mappings: q, k and v.
+        self.attn_drop = nn.Dropout(attn_drop)
+        self.proj = nn.Linear(embedding_dim, embedding_dim)
+        self.proj_drop = nn.Dropout(proj_drop)
+        self.softmax = nn.Softmax(dim=-1)
+
+    def forward(self, tkn):
+        """
+        Forward pass.
+
+        Parameters
+        ----------
+        tkn: torch.Tensor
+            Input embedded token.
+            Shape: (batch_size, n_tkns, embedding_dim) (No +1 because no patch token)
+
+        Returns
+        -------
+        torch.Tensor
+            Embedded concatenation of attention head outputs.
+            Shape: (batch_size, n_tkns, embedding_dim)
+        """
+        batch_size, n_tkns, embedding_dim = tkn.shape
+        qkv = self.qkv(tkn) # (batch_size, n_tkns, 3 * embedding_dim)
+        qkv = qkv.reshape(batch_size, n_tkns, 3, self.n_heads, self.head_dim) # (batch_size, n_tkns, 3, n_heads, head_dim)
+        qkv = qkv.permute(2, 0, 3, 1, 4) # (3, batch_size, n_heads, n_tkns, head_dim)
+        q, k, v = qkv[0], qkv[1], qkv[2]
+
+        attn = (q @ k.transpose(-2, -1)) * self.scale # (batch_size, n_heads, n_tkns, n_tkns)
+        attn = self.softmax(attn) # (batch_size, n_heads, n_tkns, n_tkns)
+        attn = self.attn_drop(attn) # Attention dropout
+
+        out = attn @ v # (batch_size, n_heads, n_tkns, head_dim)
+        out = out.transpose(1, 2) # (batch_size, n_tkns, n_heads, head_dim)
+        out = out.reshape(batch_size, n_tkns, embedding_dim) # (batch_size, n_tkns, embedding dim)
+        out = self.proj(out) # (batch_size, n_tkns, embedding_dim)
+        out = self.proj_drop(out) # Projection dropout)
+
+        return out
+
+
