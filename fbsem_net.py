@@ -72,7 +72,7 @@ class FBSEMNet(nn.Module):
                         em_update(img[b, 0, :, :], sino[b, 0, :, :],
                             sens_img, self.system_model)
                 # Reg block - PyTorch handles mini-batch in parallel (I think)
-                out_reg = self.regulariser(img, mr)
+                out_reg = self.regulariser(img.view(1, 1, img_size[-2], img_size[-1]), mr)
                 # Fusion block - parallelised in fusion function definition
                 img = fbsem_fusion(out_em, out_reg, inv_sens_img, self.beta)
             return img
@@ -118,7 +118,7 @@ class FBSEMNet(nn.Module):
                         out_em[b, 0, r, :, :] = \
                             em_update(img[b, 0, r, :, :], sino[b, 0, r, :, :],
                                 sens_img, self.system_model)
-                        out_reg = self.regulariser(img[b, 0, r, :, :], mr)
+                        out_reg = self.regulariser(img[b, 0, r, :, :].view(1, 1, img_size[-2], img_size[-1]), mr)
                 # Fusion block - parallelised in fusion function definition
                 temp_img = fbsem_fusion(out_em, out_reg,
                     inv_sens_img, self.beta)
