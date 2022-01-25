@@ -391,8 +391,9 @@ class VisionTransformer(nn.Module):
             [TransformerEncoder(embedding_dim, n_heads, mlp_ratio, qkv_bias, drop, attn_drop) for i in range(depth)])
         self.norm = nn.LayerNorm(embedding_dim, 1e-6)
         self.patch_merge = PatchMerging(img_size, patch_size, in_channels, embedding_dim)
+        self.in_channels = in_channels
 
-    def forward(self, x):
+    def forward(self, x, _):
         """
         Forward pass of image through Vision Transformer.
 
