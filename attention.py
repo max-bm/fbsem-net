@@ -393,7 +393,7 @@ class VisionTransformer(nn.Module):
         self.patch_merge = PatchMerging(img_size, patch_size, in_channels, embedding_dim)
         self.in_channels = in_channels
 
-    def forward(self, x):
+    def forward(self, x, _):
         """
         Forward pass of image through Vision Transformer.
 
