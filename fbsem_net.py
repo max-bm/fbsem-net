@@ -6,10 +6,10 @@ maxwell.monro@kcl.ac.uk
 import torch
 import torch.nn as nn
 import numpy as np
-from pet_system_model import PETSystemModel
-from differentiable_functions import ForwardModel, BackwardModel
-from simple_reg import IdentityMapping, ZeroMapping
-from utilities import DictDataset, nrmse, em_update
+from torch_pet.system_model.pet_system_model import PETSystemModel
+from torch_pet.system_model.differentiable_functions import ForwardModel, BackwardModel
+from torch_pet.regularisers.simple_reg import IdentityMapping, ZeroMapping
+from torch_pet.utilities import DictDataset, nrmse, em_update
 import matplotlib.pyplot as plt
 import copy
 import time

@@ -4,7 +4,7 @@ maxwell.monro@kcl.ac.uk
 """
 
 import torch
-from pet_system_model import PETSystemModel
+from torch_pet.system_model.pet_system_model import PETSystemModel
 
 class ForwardModel(torch.autograd.Function):
     """

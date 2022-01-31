@@ -7,8 +7,8 @@ import torch
 import torch.nn as nn
 import numpy as np
 import matplotlib.pyplot as plt
-from pet_system_model import PETSystemModel
-from differentiable_functions import ForwardModel, BackwardModel
+from torch_pet.system_model.pet_system_model import PETSystemModel
+from torch_pet.system_model.differentiable_functions import ForwardModel, BackwardModel
 
 
 class DictDataset(torch.utils.data.Dataset):
