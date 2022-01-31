@@ -3,14 +3,13 @@ Author: Maxwell Buckmire-Monro
 maxwell.monro@kcl.ac.uk
 """
 
-from typing import final
 import torch
 import torch.nn as nn
 import numpy as np
 from pet_system_model import PETSystemModel
 from differentiable_functions import ForwardModel, BackwardModel
-from torch_em import em_update
-from utilities import DictDataset, nrmse, IdentityMapping, ZeroMapping
+from simple_reg import IdentityMapping, ZeroMapping
+from utilities import DictDataset, nrmse, em_update
 import matplotlib.pyplot as plt
 import copy
 import time
@@ -28,7 +27,7 @@ def fbsem_fusion(out_em: torch.Tensor, out_reg: torch.Tensor,
 
 class FBSEMNet(nn.Module):
     """
-    Class to define FBSEM-Net architecture. Define forward function uniquely for 
+    Class to define FBSEM-Net architecture. Define forward function uniquely for
     training (i.e. target == None) and for testing (i.e. target != None) - this
     handles multiple noisy realisations during testing and calculates NRMSE.
     """
@@ -155,7 +154,7 @@ class FBSEMNet(nn.Module):
                     recon_dict['best_mod_wrt_gt'] = i + 1
                     recon_dict['best_recon_wrt_gt'] = \
                         img.detach().cpu().numpy()
-            
+
             recon_dict['final_recon'] = img.detach().cpu().numpy()
             recon_dict['final_nrmse_wrt_ref'] = nrmse(img, target[0])
             recon_dict['final_nrmse_wrt_gt'] = nrmse(img, target[1])
@@ -166,7 +165,7 @@ def train_fbsem(model, train_loader, val_loader, model_name='', save_dir='',
                 epochs=50, lr=3e-4, mr_scale=1):
     """
     Function for training FBSEM-Net, with concurrent training and validation
-    loops. 
+    loops.
     """
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
@@ -191,7 +190,7 @@ def train_fbsem(model, train_loader, val_loader, model_name='', save_dir='',
             optimiser.zero_grad()
             # We choose a random sinogram from all possible noisy realisations
             # as a form of data augmentation to artificially increase the size
-            # of the training set. This should help train the network to be 
+            # of the training set. This should help train the network to be
             # robust to noise in the data.
             n_realisations = sample['noisy_sino'].shape[2]
             idx = random.randint(0, n_realisations - 1)
@@ -200,9 +199,9 @@ def train_fbsem(model, train_loader, val_loader, model_name='', save_dir='',
             if model.regulariser.in_channels == 1:
                 mr = None
             else:
-                mr = sample['mr'].float().to(device) 
+                mr = sample['mr'].float().to(device)
                 mr = mr_scale * mr / mr.max*()
-            
+
             output = model(sino, mr)
             loss = loss_func(output, target)
             epoch_train_loss.append(loss.item())
@@ -210,7 +209,7 @@ def train_fbsem(model, train_loader, val_loader, model_name='', save_dir='',
             optimiser.step()
 
         train_loss.append(np.mean(epoch_train_loss))
-        print('Epoch {}/{}: Training loss = {}, Time/epoch = {}s.'.format(e+1, 
+        print('Epoch {}/{}: Training loss = {}, Time/epoch = {}s.'.format(e+1,
             epochs, round(train_loss[-1], 6), round(time.time()-t1, 2)))
         print('beta = {}.'.format(model.beta.clone().detach().cpu().numpy()))
         beta_var.append(model.beta.clone().detach().cpu().numpy())
@@ -233,9 +232,9 @@ def train_fbsem(model, train_loader, val_loader, model_name='', save_dir='',
                 if model.regulariser.in_channels == 1:
                     mr = None
                 else:
-                    mr = sample['mr'].float().to(device) 
+                    mr = sample['mr'].float().to(device)
                     mr = mr_scale * mr / mr.max*()
-                
+
                 output = model(sino, mr)
                 loss = loss_func(output, target)
                 epoch_val_loss.append(loss.item())
@@ -255,7 +254,7 @@ def train_fbsem(model, train_loader, val_loader, model_name='', save_dir='',
     final_checkpt['val_loss'] = val_loss
     final_checkpt['beta_var'] = beta_var
     final_checkpt['training_models'] = training_models
-    torch.save(final_checkpt, '{}{}_trained_{}-epochs.pth'.format(save_dir, 
+    torch.save(final_checkpt, '{}{}_trained_{}-epochs.pth'.format(save_dir,
         model_name, epochs))
     return best_model
 
@@ -277,10 +276,10 @@ def test_fbsem(model, test_loader, model_name='', save_dir='', mr_scale=1):
             if model.regulariser.in_channels == 1:
                 mr = None
             else:
-                mr = sample['mr'].float().to(device) 
+                mr = sample['mr'].float().to(device)
                 mr = mr_scale * mr / mr.max*()
 
-            output, test_results = model(sino, mr, target=(target, 
+            output, test_results = model(sino, mr, target=(target,
                 ground_truth))
             test_results['noisy_sino'] = sino
             test_results['HD_target'] = target.detach().cpu().numpy()
@@ -295,4 +294,3 @@ def test_fbsem(model, test_loader, model_name='', save_dir='', mr_scale=1):
 
     torch.save(test_results, save_dir + model_name + '_test_results.pth')
     return test_results
-    
