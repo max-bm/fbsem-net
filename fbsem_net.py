@@ -82,41 +82,8 @@ class FBSEMNet(nn.Module):
             Reconstruction data.
         """
         device = 'cpu' if sino.get_device() == -1 else sino.get_device()
-        batch_size = sino.shape[0]
-        # Training/validation
-        if target is None:
-            # Generate sensitivity image and its reciprocal
-            sens_img = self.system_model.backward_model(
-                torch.ones_like(sino[0, 0, :, :])).to(device).float()
-            sens_mask = (sens_img != 0)
-            inv_sens_img = torch.zeros_like(sens_img).to(device).float()
-            inv_sens_img[sens_mask] = 1. / sens_img[sens_mask]
-
-            # Initialise image estimate
-            img_size = sens_img.shape
-            img = torch.ones(batch_size, 1, img_size[-2],
-                img_size[-1]).to(device).float()
-            # FBSEM loop
-            for i in range(self.n_mods):
-                out_em = out_reg = torch.zeros_like(img)
-                # Loop through mini-batch for EM update
-                # Potential to vectorise this within em_update function
-                # definition
-                for b in range(batch_size):
-                    # EM block
-                    out_em[b, 0, :, :] = \
-                        em_update(img[b, 0, :, :], sino[b, 0, :, :],
-                            sens_img, self.system_model)
-                # Reg block - PyTorch handles mini-batch in parallel (I think)
-                out_reg = self.regulariser(img.view(1, 1, img_size[-2], img_size[-1]), mr)
-                # Fusion block - parallelised in fusion function definition
-                img = fbsem_fusion(out_em, out_reg, inv_sens_img, self.beta)
-            return img
-
-        # Testing
-        else:
-            if self.to_convergence:
-                mse_tracker = list()
+        # If testing, create test dictionary
+        if target != None:
             recon_dict = dict()
             recon_dict['nrmse_wrt_ref'] = np.zeros((self.n_mods, 1))
             recon_dict['nrmse_wrt_gt'] = np.zeros((self.n_mods, 1))
@@ -130,46 +97,51 @@ class FBSEMNet(nn.Module):
             recon_dict['sd_wrt_ref'][:] = np.Inf
             recon_dict['bias_wrt_gt'][:] = np.Inf
             recon_dict['sd_wrt_gt'][:] = np.Inf
+            if self.to_convergence:
+                mse_tracker = list()
 
-            n_realisations = sino.shape[2]
-            sens_img = self.system_model.backward_model(
-                torch.ones_like(sino[0, 0, 0, :, :])).to(device).float()
-            sens_mask = (sens_img != 0)
-            inv_sens_img = torch.zeros_like(sens_img).to(device).float()
-            inv_sens_img[sens_mask] = 1. / sens_img[sens_mask]
+        batch_size = sino.shape[0]
+        n_realisations = sino.shape[2]
+        sens_img = self.system_model.backward_model(
+            torch.ones_like(sino[0, 0, 0, :, :])).to(device).float()
+        sens_mask = (sens_img != 0)
+        inv_sens_img = torch.zeros_like(sens_img).to(device).float()
+        inv_sens_img[sens_mask] = 1. / sens_img[sens_mask]
+        # Initialise image estimate
+        img_size = sens_img.shape
+        img = torch.ones(batch_size, 1, n_realisations, img_size[-2],
+            img_size[-1]).to(device).float()
+        # FBSEM Loop
+        for i in range(self.n_mods):
+            out_em = torch.zeros_like(img)
+            out_reg = torch.zeros_like(img)
+            # Loop through mini-batch for EM update
+            # Potential to vectorise this within em_update function
+            # definition
+            for b in range(batch_size):
+                for r in range(n_realisations):
+                    # EM block
+                    out_em[b, 0, r, :, :] = \
+                        em_update(img[b, 0, r, :, :], sino[b, 0, r, :, :],
+                            sens_img, self.system_model)
+                    out_reg = self.regulariser(img[b, 0, r, :, :].view(1, 1, img_size[-2], img_size[-1]), mr)
 
-            # Initialise image estimate
-            img_size = sens_img.shape
-            img = torch.ones(batch_size, 1, n_realisations, img_size[-2],
-                img_size[-1]).to(device).float()
-            # FBSEM Loop
-            for i in range(self.n_mods):
-                out_em = torch.zeros_like(img)
-                out_reg = torch.zeros_like(img)
-                # Loop through mini-batch for EM update
-                # Potential to vectorise this within em_update function
-                # definition
-                for b in range(batch_size):
-                    for r in range(n_realisations):
-                        # EM block
-                        out_em[b, 0, r, :, :] = \
-                            em_update(img[b, 0, r, :, :], sino[b, 0, r, :, :],
-                                sens_img, self.system_model)
-                        out_reg = self.regulariser(img[b, 0, r, :, :].view(1, 1, img_size[-2], img_size[-1]), mr)
-                # Fusion block - parallelised in fusion function definition
-                temp_img = fbsem_fusion(out_em, out_reg,
-                    inv_sens_img, self.beta)
-                if self.to_convergence:
-                    rel_error = np.mean(np.abs(temp_img.detach().cpu().numpy() -
-                        img.detach().cpu().numpy())) / np.mean(
-                            img.detach().cpu().numpy())
-                    mse_tracker.append(rel_error)
-                    if i > 10 and np.mean(np.array(mse_tracker[-10:])) < 1e-4:
-                        recon_dict['n_mods'] = i
-                        img = temp_img
-                        break
-                img = temp_img
+            # Fusion block - parallelised in fusion function definition
+            temp_img = fbsem_fusion(out_em, out_reg,
+                inv_sens_img, self.beta)
+            # If testing to convergence
+            if self.to_convergence:
+                rel_error = np.mean(np.abs(temp_img.detach().cpu().numpy() -
+                    img.detach().cpu().numpy())) / np.mean(
+                        img.detach().cpu().numpy())
+                mse_tracker.append(rel_error)
+                if i > 10 and np.mean(np.array(mse_tracker[-10:])) < 1e-4:
+                    recon_dict['n_mods'] = i
+                    img = temp_img
+                    break
+            img = temp_img
 
+            if target != None:
                 recon_dict['nrmse_wrt_ref'][i], \
                     recon_dict['bias_wrt_ref'][i], \
                         recon_dict['sd_wrt_ref'][i] = \
@@ -193,10 +165,13 @@ class FBSEMNet(nn.Module):
                     recon_dict['best_recon_wrt_gt'] = \
                         img.detach().cpu().numpy()
 
+        if target != None:
             recon_dict['final_recon'] = img.detach().cpu().numpy()
             recon_dict['final_nrmse_wrt_ref'] = nrmse(img, target[0])
             recon_dict['final_nrmse_wrt_gt'] = nrmse(img, target[1])
             return img, recon_dict
+        else:
+            return img
 
 
 def fbsem_fusion(out_em: torch.Tensor, out_reg: torch.Tensor,
@@ -285,6 +260,7 @@ def train_fbsem(model, train_loader, val_loader, model_name='', save_dir='',
             n_realisations = sample['noisy_sino'].shape[2]
             idx = random.randint(0, n_realisations - 1)
             sino = sample['noisy_sino'][:, :, idx, :, :].float().to(device)
+            sino = torch.unsqueeze(sino, 2)
             target = sample['HD_target'].float().to(device)
             if model.regulariser.in_channels == 1:
                 mr = None
@@ -318,6 +294,7 @@ def train_fbsem(model, train_loader, val_loader, model_name='', save_dir='',
                 # We validate on a static set, so now we use the same noisy
                 # realisation each time
                 sino = sample['noisy_sino'][:, :, 0, :, :].float().to(device)
+                sino = torch.unsqueeze(sino, 2)
                 target = sample['HD_target'].float().to(device)
                 if model.regulariser.in_channels == 1:
                     mr = None
@@ -391,7 +368,6 @@ def test_fbsem(model, test_loader, model_name='', save_dir='', mr_scale=1):
                 mr = sample['mr'].float().to(device)
                 mr = mr_scale * mr / mr.max*()
 
-            print(sino.shape)
             output, test_results = model(sino, mr, target=(target,
                 ground_truth))
             test_results['noisy_sino'] = sino
