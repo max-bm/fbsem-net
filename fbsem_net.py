@@ -15,21 +15,39 @@ import copy
 import time
 import random
 
-def fbsem_fusion(out_em: torch.Tensor, out_reg: torch.Tensor,
-    inv_sens_img: torch.Tensor, beta: torch.nn.Parameter):
-    """
-    Function to compute fusion of output of EM update and of regulariser block.
-    """
-    return 2 * out_em / (1 - beta**2 * inv_sens_img * out_reg + \
-        torch.sqrt((1 - beta**2 * inv_sens_img * out_reg)**2 + \
-            4 * beta**2 * inv_sens_img * out_em))
-
 
 class FBSEMNet(nn.Module):
     """
     Class to define FBSEM-Net architecture. Define forward function uniquely for
     training (i.e. target == None) and for testing (i.e. target != None) - this
     handles multiple noisy realisations during testing and calculates NRMSE.
+
+    Parameteres
+    -----------
+    system_model: PETSystemModel
+        PETSystemModel object which defines imaging system.
+
+    regulariser: nn.Module
+        PyTorch network defining regularisation block.
+
+    n_mods: int
+        Number of modules in the overall RNN.
+
+    batch_size: int
+        Batch size for training the network.
+
+    fixed_beta: float
+        Fixed fusion coefficient. False by default, giving random and
+        learnable fusion coefficient.
+
+    to_convergence: bool
+        Toggle to run model until output has converged, up to a maximum
+        number of modules given by n_mod.
+
+    Attributes
+    ----------
+    beta: torch.Parameter
+        Learnable fusion weight.
     """
     def __init__(self, system_model: PETSystemModel, regulariser, n_mods: int,
         batch_size: int, fixed_beta = False, to_convergence=False):
@@ -45,6 +63,28 @@ class FBSEMNet(nn.Module):
             self.beta.data = torch.Tensor([fixed_beta])
 
     def forward(self, sino: torch.Tensor, mr=None, target=None):
+        """
+        Forward pass through FBSEM-Net.
+
+        Parameters
+        ----------
+        sino: torch.Tensor
+            Input measured sinogram tensor.
+
+        mr: torch.Tensor
+            Input corresponding MR tensor for anatomically-guided recon.
+
+        target: torch.Tensor
+            Targets of reconstruction, for test-time performance measures.
+
+        Returns
+        -------
+        img: torch.Tensor
+            Reconstructed image tensor.
+
+        recon_dict: dict
+            Reconstruction data.
+        """
         device = 'cpu' if sino.get_device() == -1 else sino.get_device()
         # Training/validation
         if target is None:
@@ -161,11 +201,63 @@ class FBSEMNet(nn.Module):
             return img, recon_dict
 
 
+def fbsem_fusion(out_em: torch.Tensor, out_reg: torch.Tensor,
+    inv_sens_img: torch.Tensor, beta: torch.nn.Parameter):
+    """
+    Function to compute fusion of EM update and regulariser block.
+
+    Parameters
+    ----------
+    out_em: torch.Tensor
+        EM update output tensor.
+
+    out_reg: torch.Tensor
+        Regulariser block output tensor.
+
+    inv_sens_img: torch.Tensor
+        Reciprocal of system sensitivity image.
+
+    beta: torch.Parameter
+        Learnable fusion weight.
+    """
+    return 2 * out_em / (1 - beta**2 * inv_sens_img * out_reg + \
+        torch.sqrt((1 - beta**2 * inv_sens_img * out_reg)**2 + \
+            4 * beta**2 * inv_sens_img * out_em))
+
+
 def train_fbsem(model, train_loader, val_loader, model_name='', save_dir='',
                 epochs=50, lr=3e-4, mr_scale=1):
     """
     Function for training FBSEM-Net, with concurrent training and validation
     loops.
+
+    Parameters
+    ----------
+    model: FBSEMNet
+        Trainable FBSEM-Net architecture.
+
+    train_loader, val_loader: torch.utils.data.DataLoader
+        PyTorch dataloaders for training and validation sets.
+
+    model_name: str
+        Name of model for saving.
+
+    save_dir: str
+        Path to directory for saving.
+
+    epochs: int
+        Number of training and validation epochs.
+
+    lr: float
+        Learning rate for training network parameters and beta.
+
+    mr_scale: float
+        Scaling factor for MR input values.
+
+    Returns
+    -------
+    FBSEMNet
+        Trained model with best performance on validation set.
     """
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
@@ -262,6 +354,29 @@ def train_fbsem(model, train_loader, val_loader, model_name='', save_dir='',
 def test_fbsem(model, test_loader, model_name='', save_dir='', mr_scale=1):
     """
     Function for testing FBSEM-Net.
+
+    Parameters
+    ----------
+    model: FBSEMNet
+        Trainable FBSEM-Net architecture.
+
+    test_loader: torch.utils.data.DataLoader
+        PyTorch dataloader for test set.
+
+    model_name: str
+        Name of model for saving.
+
+    save_dir: str
+        Path to directory for saving.
+
+    mr_scale: float
+        Scaling factor for MR input values.
+
+    Returns
+    -------
+    dict
+        Dictionary of test peformance results.
+    """
     """
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
