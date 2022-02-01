@@ -33,9 +33,6 @@ class FBSEMNet(nn.Module):
     n_mods: int
         Number of modules in the overall RNN.
 
-    batch_size: int
-        Batch size for training the network.
-
     fixed_beta: float
         Fixed fusion coefficient. False by default, giving random and
         learnable fusion coefficient.
@@ -50,12 +47,11 @@ class FBSEMNet(nn.Module):
         Learnable fusion weight.
     """
     def __init__(self, system_model: PETSystemModel, regulariser, n_mods: int,
-        batch_size: int, fixed_beta = False, to_convergence=False):
+        fixed_beta = False, to_convergence=False):
         super(FBSEMNet, self).__init__()
         self.system_model = system_model
         self.regulariser = regulariser
         self.n_mods = n_mods
-        self.batch_size = batch_size
         self.to_convergence = to_convergence
         self.register_parameter(name='beta', param=nn.Parameter(torch.rand(1),
             requires_grad=True))
@@ -86,6 +82,7 @@ class FBSEMNet(nn.Module):
             Reconstruction data.
         """
         device = 'cpu' if sino.get_device() == -1 else sino.get_device()
+        batch_size = sino.shape[0]
         # Training/validation
         if target is None:
             # Generate sensitivity image and its reciprocal
@@ -97,7 +94,7 @@ class FBSEMNet(nn.Module):
 
             # Initialise image estimate
             img_size = sens_img.shape
-            img = torch.ones(self.batch_size, 1, img_size[-2],
+            img = torch.ones(batch_size, 1, img_size[-2],
                 img_size[-1]).to(device).float()
             # FBSEM loop
             for i in range(self.n_mods):
@@ -105,7 +102,7 @@ class FBSEMNet(nn.Module):
                 # Loop through mini-batch for EM update
                 # Potential to vectorise this within em_update function
                 # definition
-                for b in range(self.batch_size):
+                for b in range(batch_size):
                     # EM block
                     out_em[b, 0, :, :] = \
                         em_update(img[b, 0, :, :], sino[b, 0, :, :],
@@ -143,15 +140,16 @@ class FBSEMNet(nn.Module):
 
             # Initialise image estimate
             img_size = sens_img.shape
-            img = torch.ones(self.batch_size, 1, n_realisations, img_size[-2],
+            img = torch.ones(batch_size, 1, n_realisations, img_size[-2],
                 img_size[-1]).to(device).float()
-                # FBSEM Loop
+            # FBSEM Loop
             for i in range(self.n_mods):
-                out_em = out_reg = torch.zeros_like(img)
+                out_em = torch.zeros_like(img)
+                out_reg = torch.zeros_like(img)
                 # Loop through mini-batch for EM update
                 # Potential to vectorise this within em_update function
                 # definition
-                for b in range(self.batch_size):
+                for b in range(batch_size):
                     for r in range(n_realisations):
                         # EM block
                         out_em[b, 0, r, :, :] = \
@@ -377,7 +375,6 @@ def test_fbsem(model, test_loader, model_name='', save_dir='', mr_scale=1):
     dict
         Dictionary of test peformance results.
     """
-    """
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
     with torch.no_grad():
@@ -394,6 +391,7 @@ def test_fbsem(model, test_loader, model_name='', save_dir='', mr_scale=1):
                 mr = sample['mr'].float().to(device)
                 mr = mr_scale * mr / mr.max*()
 
+            print(sino.shape)
             output, test_results = model(sino, mr, target=(target,
                 ground_truth))
             test_results['noisy_sino'] = sino
