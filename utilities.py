@@ -108,13 +108,13 @@ def plot_test_results(test_results):
     test_results: dict
         Dictionary of test results.
     """
-    ld_counts = test_results['LD_counts'][0].numpy()[0]
+    ld_counts = torch.mean(test_results['LD_counts']).numpy()
     best_nrmse_wrt_ref = np.round(test_results['best_nrmse_wrt_ref'][0] * 100, 3)
     best_nrmse_wrt_gt = np.round(test_results['best_nrmse_wrt_gt'][0] * 100, 3)
     final_nrmse_wrt_ref = np.round(test_results['final_nrmse_wrt_ref'][0] * 100, 3)
     final_nrmse_wrt_gt = np.round(test_results['final_nrmse_wrt_gt'][0] * 100, 3)
-    final_recon_img = test_results['final_recon'][0, 0, 0, 20:-20, 20:-20]
-    ground_truth = test_results['pet_gt'][0, 0, 20:-20, 20:-20]
+    final_recon_img = test_results['final_recon'][0, 0, 20:-20, 20:-20]
+    ground_truth = test_results['pet_gt'][0, 20:-20, 20:-20]
     nrmse_wrt_ref = test_results['nrmse_wrt_ref']
     nrmse_wrt_gt = test_results['nrmse_wrt_gt']
     n_mods = len(nrmse_wrt_ref)

@@ -349,9 +349,10 @@ def test_fbsem(model, test_loader, model_name='', save_dir='', mr_scale=1):
 
     Returns
     -------
-    dict
-        Dictionary of test peformance results.
+    list
+        List of dictionaries of test peformance results.
     """
+    results = list()
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
     with torch.no_grad():
@@ -370,16 +371,20 @@ def test_fbsem(model, test_loader, model_name='', save_dir='', mr_scale=1):
 
             output, test_results = model(sino, mr, target=(target,
                 ground_truth))
-            test_results['noisy_sino'] = sino
-            test_results['HD_target'] = target.detach().cpu().numpy()
-            test_results['pet_gt'] = ground_truth.detach().cpu().numpy()
-            test_results['HD_counts'] = sample['HD_counts']
-            test_results['LD_counts'] = sample['LD_counts']
-            test_results['mlem_iters'] = sample['mlem_iters']
-            test_results['factor'] = sample['factor']
-            test_results['final_recon'] = output.detach().cpu().numpy()
-            test_results['final_nrmse_wrt_ref'] = nrmse(output, target)
-            test_results['final_nrmse_wrt_gt'] = nrmse(output, ground_truth)
+            batch_size = sino.shape[0]
+            for b in range(batch_size):
+                test_results['noisy_sino'] = sino[b, :, :, :, :]
+                test_results['HD_target'] = target[b, :, :, :].detach().cpu().numpy()
+                test_results['pet_gt'] = ground_truth[b, :, :, :].detach().cpu().numpy()
+                test_results['HD_counts'] = sample['HD_counts'][b]
+                test_results['LD_counts'] = sample['LD_counts'][b]
+                test_results['mlem_iters'] = sample['mlem_iters'][b]
+                test_results['factor'] = sample['factor'][b]
+                test_results['final_recon'] = output[b, :, :, :, :].detach().cpu().numpy()
+                test_results['final_nrmse_wrt_ref'] = nrmse(output[b, :, :, :, :].unsqueeze(0), target[b, :, :, :].unsqueeze(0))
+                test_results['final_nrmse_wrt_gt'] = nrmse(output[b, :, :, :, :].unsqueeze(0), ground_truth[b, :, :, :].unsqueeze(0))
+                results.append(test_results)
 
-    torch.save(test_results, save_dir + model_name + '_test_results.pth')
-    return test_results
+
+    torch.save(results, save_dir + model_name + '_test_results.pth')
+    return results
