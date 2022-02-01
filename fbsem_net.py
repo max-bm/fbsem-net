@@ -124,7 +124,10 @@ class FBSEMNet(nn.Module):
                     out_em[b, 0, r, :, :] = \
                         em_update(img[b, 0, r, :, :], sino[b, 0, r, :, :],
                             sens_img, self.system_model)
-                    out_reg = self.regulariser(img[b, 0, r, :, :].view(1, 1, img_size[-2], img_size[-1]), mr)
+            out_reg = self.regulariser(img.transpose(1, 2).view(
+                batch_size * n_realisations, 1, img_size[-2], img_size[-1]), mr)
+            out_reg = out_reg.view(batch_size, n_realisations, 1, img_size[-1],
+                img_size[-1]).transpose(1, 2)
 
             # Fusion block - parallelised in fusion function definition
             temp_img = fbsem_fusion(out_em, out_reg,
