@@ -56,13 +56,22 @@ def em_update(img: torch.Tensor, sino: torch.Tensor, sens_img: torch.Tensor,
     """
     forward_model = ForwardModel.apply
     backward_model = BackwardModel.apply
-
     device = 'cpu' if img.get_device() == -1 else img.get_device()
-    forwardprojection = forward_model(img, system_model)
+    batch_size = img.shape[0]
+    n_realisations = img.shape[2]
+    sens_img = sens_img.view(1, 1, 1, img.shape[-2], img.shape[-1])
+    sens_img = sens_img.repeat(batch_size, 1, n_realisations, 1, 1)
+    forwardprojection = torch.zeros_like(sino).to(device).float()
+    for b in range(batch_size):
+        for r in range(n_realisations):
+            forwardprojection[b, 0, r, :, :] = forward_model(img[b, 0, r, :, :], system_model)
     fp_mask = (forwardprojection != 0)
     ratio_sino = torch.zeros_like(sino).to(device).float()
     ratio_sino[fp_mask] = sino [fp_mask] / forwardprojection[fp_mask]
-    backprojection = backward_model(ratio_sino, system_model)
+    backprojection = torch.zeros_like(img).to(device).float()
+    for b in range(batch_size):
+        for r in range(n_realisations):
+            backprojection[b, 0, r, :, :] = backward_model(ratio_sino[b, 0, r, :, :], system_model)
     bp_mask = (backprojection != 0)
     updated_img = torch.zeros_like(img).to(device).float()
     updated_img[bp_mask] = \

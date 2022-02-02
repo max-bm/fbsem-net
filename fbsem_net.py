@@ -115,15 +115,9 @@ class FBSEMNet(nn.Module):
         for i in range(self.n_mods):
             out_em = torch.zeros_like(img)
             out_reg = torch.zeros_like(img)
-            # Loop through mini-batch for EM update
-            # Potential to vectorise this within em_update function
-            # definition
-            for b in range(batch_size):
-                for r in range(n_realisations):
-                    # EM block
-                    out_em[b, 0, r, :, :] = \
-                        em_update(img[b, 0, r, :, :], sino[b, 0, r, :, :],
-                            sens_img, self.system_model)
+            # EM block
+            out_em = em_update(img, sino, sens_img, self.system_model)
+            # Regulariser block
             out_reg = self.regulariser(img.transpose(1, 2).view(
                 batch_size * n_realisations, 1, img_size[-2], img_size[-1]), mr)
             out_reg = out_reg.view(batch_size, n_realisations, 1, img_size[-1],
