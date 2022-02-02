@@ -128,7 +128,6 @@ class FBSEMNet(nn.Module):
                 batch_size * n_realisations, 1, img_size[-2], img_size[-1]), mr)
             out_reg = out_reg.view(batch_size, n_realisations, 1, img_size[-1],
                 img_size[-1]).transpose(1, 2)
-
             # Fusion block - parallelised in fusion function definition
             temp_img = fbsem_fusion(out_em, out_reg,
                 inv_sens_img, self.beta)
