@@ -20,7 +20,7 @@ class FBSEMNet(nn.Module):
     """
     Class to define FBSEM-Net architecture. Define forward function uniquely for
     training (i.e. target == None) and for testing (i.e. target != None) - this
-    handles multiple noisy realisations during testing and calculates NRMSE.
+    handles multiple noisy realisations during testing and calculates RMSE.
 
     Parameteres
     -----------
@@ -86,14 +86,14 @@ class FBSEMNet(nn.Module):
         batch_size = sino.shape[0]
         if target != None:
             recon_dict = dict()
-            recon_dict['nrmse_wrt_ref'] = np.zeros(self.n_mods)
-            recon_dict['nrmse_wrt_gt'] = np.zeros(self.n_mods)
+            recon_dict['rmse_wrt_ref'] = np.zeros(self.n_mods)
+            recon_dict['rmse_wrt_gt'] = np.zeros(self.n_mods)
             recon_dict['bias_wrt_ref'] = np.zeros(self.n_mods)
             recon_dict['sd_wrt_ref'] = np.zeros(self.n_mods)
             recon_dict['bias_wrt_gt'] = np.zeros(self.n_mods)
             recon_dict['sd_wrt_gt'] = np.zeros(self.n_mods)
-            recon_dict['nrmse_wrt_ref'][:] = np.nan
-            recon_dict['nrmse_wrt_gt'][:] = np.nan
+            recon_dict['rmse_wrt_ref'][:] = np.nan
+            recon_dict['rmse_wrt_gt'][:] = np.nan
             recon_dict['bias_wrt_ref'][:] = np.nan
             recon_dict['sd_wrt_ref'][:] = np.nan
             recon_dict['bias_wrt_gt'][:] = np.nan
@@ -132,26 +132,26 @@ class FBSEMNet(nn.Module):
                 gt_rmse = batch_rmse(temp_img, target[1])
                 # recon_dict_list[:, 0] referes to all recon_dict in batch
                 for b in range(batch_size):
-                    recon_dict_list[:, 0][b]['nrmse_wrt_ref'][i] = ref_rmse[b, 0]
+                    recon_dict_list[:, 0][b]['rmse_wrt_ref'][i] = ref_rmse[b, 0]
                     recon_dict_list[:, 0][b]['bias_wrt_ref'][i] = ref_rmse[b, 1]
                     recon_dict_list[:, 0][b]['sd_wrt_ref'][i] = ref_rmse[b, 2]
 
-                    if recon_dict_list[:, 0][b]['nrmse_wrt_ref'][i] == \
-                        min(recon_dict_list[:, 0][b]['nrmse_wrt_ref'][:]):
-                        recon_dict_list[:, 0][b]['best_nrmse_wrt_ref'] = \
-                            recon_dict_list[:, 0][b]['nrmse_wrt_ref'][i]
+                    if recon_dict_list[:, 0][b]['rmse_wrt_ref'][i] == \
+                        min(recon_dict_list[:, 0][b]['rmse_wrt_ref'][:]):
+                        recon_dict_list[:, 0][b]['best_rmse_wrt_ref'] = \
+                            recon_dict_list[:, 0][b]['rmse_wrt_ref'][i]
                         recon_dict_list[:, 0][b]['best_mod_wrt_ref'] = i + 1
                         recon_dict_list[:, 0][b]['best_recon_wrt_ref'] = \
                             temp_img[b].detach().cpu().numpy()
 
-                    recon_dict_list[:, 0][b]['nrmse_wrt_gt'][i] = gt_rmse[b, 0]
+                    recon_dict_list[:, 0][b]['rmse_wrt_gt'][i] = gt_rmse[b, 0]
                     recon_dict_list[:, 0][b]['bias_wrt_gt'][i] = gt_rmse[b, 1]
                     recon_dict_list[:, 0][b]['sd_wrt_gt'][i] = gt_rmse[b, 2]
 
-                    if recon_dict_list[:, 0][b]['nrmse_wrt_gt'][i] == \
-                        min(recon_dict_list[:, 0][b]['nrmse_wrt_gt'][:]):
-                        recon_dict_list[:, 0][b]['best_nrmse_wrt_gt'] = \
-                            recon_dict_list[:, 0][b]['nrmse_wrt_gt'][i]
+                    if recon_dict_list[:, 0][b]['rmse_wrt_gt'][i] == \
+                        min(recon_dict_list[:, 0][b]['rmse_wrt_gt'][:]):
+                        recon_dict_list[:, 0][b]['best_rmse_wrt_gt'] = \
+                            recon_dict_list[:, 0][b]['rmse_wrt_gt'][i]
                         recon_dict_list[:, 0][b]['best_mod_wrt_gt'] = i + 1
                         recon_dict_list[:, 0][b]['best_recon_wrt_gt'] = \
                             temp_img[b].detach().cpu().numpy()
@@ -160,10 +160,10 @@ class FBSEMNet(nn.Module):
                     if i == self.n_mods - 1:
                         recon_dict_list[:, 0][b]['final_recon'] = \
                             temp_img[b].detach().cpu().numpy()
-                        recon_dict_list[:, 0][b]['final_nrmse_wrt_ref'] = \
-                            recon_dict_list[:, 0][b]['nrmse_wrt_ref'][-1]
-                        recon_dict_list[:, 0][b]['final_nrmse_wrt_gt'] = \
-                            recon_dict_list[:, 0][b]['nrmse_wrt_gt'][-1]
+                        recon_dict_list[:, 0][b]['final_rmse_wrt_ref'] = \
+                            recon_dict_list[:, 0][b]['rmse_wrt_ref'][-1]
+                        recon_dict_list[:, 0][b]['final_rmse_wrt_gt'] = \
+                            recon_dict_list[:, 0][b]['rmse_wrt_gt'][-1]
 
                     if self.to_convergence:
                         rel_error = np.mean(np.abs(temp_img[b].detach().cpu().numpy() -
