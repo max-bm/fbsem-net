@@ -79,9 +79,10 @@ def em_update(img: torch.Tensor, sino: torch.Tensor, sens_img: torch.Tensor,
     return updated_img
 
 
-def nrmse(recons: torch.Tensor, targets: torch.Tensor):
+def batch_rmse(recons: torch.Tensor, targets: torch.Tensor):
     """
-    Function to compute NRMSE of reconstructions in comparison to given target.
+    Function to compute RMSE in comparison to a target image for a given batch
+    of reconstructed images, each with multiple realisations.
 
     Parameters
     ----------
@@ -101,11 +102,12 @@ def nrmse(recons: torch.Tensor, targets: torch.Tensor):
     mean_img = np.mean(recons, axis=2)
     repeat_mean_img = np.repeat(mean_img[:, :, np.newaxis, :, :],
         recons.shape[2], axis=2)
-    bias = np.sqrt(np.sum(np.square(mean_img - targets)) /
-        np.sum(np.square(targets)))
+    bias = np.sqrt(np.sum(np.square(mean_img - targets), axis=(1, 2, 3)) /
+        np.sum(np.square(targets), axis=(1, 2, 3)))
     std_dev = np.sqrt(np.mean(np.sum(np.square(repeat_mean_img - recons),
-        axis=(0, 1, 3, 4))) / np.sum(np.square(targets)))
-    return np.sqrt(bias**2 + std_dev**2), bias, std_dev
+        axis=(1, 3, 4)), axis=1) / np.sum(np.square(targets), axis=(1, 2, 3)))
+    batch_size = recons.shape[0]
+    return np.array([[np.sqrt(bias[b]**2 + std_dev[b]**2), bias[b], std_dev[b]] for b in range(batch_size)])
 
 
 def plot_test_results(test_results):
@@ -118,10 +120,10 @@ def plot_test_results(test_results):
         Dictionary of test results.
     """
     ld_counts = torch.mean(test_results['LD_counts']).numpy()
-    best_nrmse_wrt_ref = np.round(test_results['best_nrmse_wrt_ref'][0] * 100, 3)
-    best_nrmse_wrt_gt = np.round(test_results['best_nrmse_wrt_gt'][0] * 100, 3)
-    final_nrmse_wrt_ref = np.round(test_results['final_nrmse_wrt_ref'][0] * 100, 3)
-    final_nrmse_wrt_gt = np.round(test_results['final_nrmse_wrt_gt'][0] * 100, 3)
+    best_nrmse_wrt_ref = np.round(test_results['best_nrmse_wrt_ref'] * 100, 3)
+    best_nrmse_wrt_gt = np.round(test_results['best_nrmse_wrt_gt'] * 100, 3)
+    final_nrmse_wrt_ref = np.round(test_results['final_nrmse_wrt_ref'] * 100, 3)
+    final_nrmse_wrt_gt = np.round(test_results['final_nrmse_wrt_gt'] * 100, 3)
     final_recon_img = test_results['final_recon'][0, 0, 20:-20, 20:-20]
     ground_truth = test_results['pet_gt'][0, 20:-20, 20:-20]
     nrmse_wrt_ref = test_results['nrmse_wrt_ref']

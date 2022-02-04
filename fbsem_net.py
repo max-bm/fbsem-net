@@ -9,7 +9,7 @@ import numpy as np
 from torch_pet.system_model.pet_system_model import PETSystemModel
 from torch_pet.system_model.differentiable_functions import ForwardModel, BackwardModel
 from torch_pet.regularisers.simple_reg import IdentityMapping, ZeroMapping
-from torch_pet.utilities import DictDataset, nrmse, em_update
+from torch_pet.utilities import DictDataset, batch_rmse, em_update
 import matplotlib.pyplot as plt
 import copy
 import time
@@ -47,7 +47,7 @@ class FBSEMNet(nn.Module):
         Learnable fusion weight.
     """
     def __init__(self, system_model: PETSystemModel, regulariser, n_mods: int,
-        fixed_beta = False, to_convergence=False):
+        fixed_beta = False, to_convergence=None):
         super(FBSEMNet, self).__init__()
         self.system_model = system_model
         self.regulariser = regulariser
@@ -83,24 +83,25 @@ class FBSEMNet(nn.Module):
         """
         device = 'cpu' if sino.get_device() == -1 else sino.get_device()
         # If testing, create test dictionary
+        batch_size = sino.shape[0]
         if target != None:
             recon_dict = dict()
-            recon_dict['nrmse_wrt_ref'] = np.zeros((self.n_mods, 1))
-            recon_dict['nrmse_wrt_gt'] = np.zeros((self.n_mods, 1))
-            recon_dict['bias_wrt_ref'] = np.zeros((self.n_mods, 1))
-            recon_dict['sd_wrt_ref'] = np.zeros((self.n_mods, 1))
-            recon_dict['bias_wrt_gt'] = np.zeros((self.n_mods, 1))
-            recon_dict['sd_wrt_gt'] = np.zeros((self.n_mods, 1))
+            recon_dict['nrmse_wrt_ref'] = np.zeros(self.n_mods)
+            recon_dict['nrmse_wrt_gt'] = np.zeros(self.n_mods)
+            recon_dict['bias_wrt_ref'] = np.zeros(self.n_mods)
+            recon_dict['sd_wrt_ref'] = np.zeros(self.n_mods)
+            recon_dict['bias_wrt_gt'] = np.zeros(self.n_mods)
+            recon_dict['sd_wrt_gt'] = np.zeros(self.n_mods)
             recon_dict['nrmse_wrt_ref'][:] = np.nan
             recon_dict['nrmse_wrt_gt'][:] = np.nan
-            recon_dict['bias_wrt_ref'][:] = np.Inf
-            recon_dict['sd_wrt_ref'][:] = np.Inf
-            recon_dict['bias_wrt_gt'][:] = np.Inf
-            recon_dict['sd_wrt_gt'][:] = np.Inf
-            if self.to_convergence:
-                mse_tracker = list()
+            recon_dict['bias_wrt_ref'][:] = np.nan
+            recon_dict['sd_wrt_ref'][:] = np.nan
+            recon_dict['bias_wrt_gt'][:] = np.nan
+            recon_dict['sd_wrt_gt'][:] = np.nan
+            mse_tracker = np.array([])
+            recon_dict_list = np.array([[copy.deepcopy(recon_dict),
+                copy.deepcopy(mse_tracker)] for b in range(batch_size)])
 
-        batch_size = sino.shape[0]
         n_realisations = sino.shape[2]
         sens_img = self.system_model.backward_model(
             torch.ones_like(sino[0, 0, 0, :, :])).to(device).float()
@@ -125,47 +126,58 @@ class FBSEMNet(nn.Module):
             # Fusion block - parallelised in fusion function definition
             temp_img = fbsem_fusion(out_em, out_reg,
                 inv_sens_img, self.beta)
-            # If testing to convergence
-            if self.to_convergence:
-                rel_error = np.mean(np.abs(temp_img.detach().cpu().numpy() -
-                    img.detach().cpu().numpy())) / np.mean(
-                        img.detach().cpu().numpy())
-                mse_tracker.append(rel_error)
-                if i > 10 and np.mean(np.array(mse_tracker[-10:])) < 1e-4:
-                    recon_dict['n_mods'] = i
-                    img = temp_img
-                    break
-            img = temp_img
 
             if target != None:
-                recon_dict['nrmse_wrt_ref'][i], \
-                    recon_dict['bias_wrt_ref'][i], \
-                        recon_dict['sd_wrt_ref'][i] = \
-                            nrmse(img, target[0])
-                if recon_dict['nrmse_wrt_ref'][i] == \
-                    min(recon_dict['nrmse_wrt_ref'][:]):
-                    recon_dict['best_nrmse_wrt_ref'] = \
-                        recon_dict['nrmse_wrt_ref'][i]
-                    recon_dict['best_mod_wrt_ref'] = i + 1
-                    recon_dict['best_recon_wrt_ref'] = \
-                        img.detach().cpu().numpy()
-                recon_dict['nrmse_wrt_gt'][i], \
-                    recon_dict['bias_wrt_gt'][i], \
-                        recon_dict['sd_wrt_gt'][i] = \
-                            nrmse(img, target[1])
-                if recon_dict['nrmse_wrt_gt'][i] == \
-                    min(recon_dict['nrmse_wrt_gt'][:]):
-                    recon_dict['best_nrmse_wrt_gt'] = \
-                        recon_dict['nrmse_wrt_gt'][i]
-                    recon_dict['best_mod_wrt_gt'] = i + 1
-                    recon_dict['best_recon_wrt_gt'] = \
-                        img.detach().cpu().numpy()
+                ref_rmse = batch_rmse(temp_img, target[0])
+                gt_rmse = batch_rmse(temp_img, target[1])
+                # recon_dict_list[:, 0] referes to all recon_dict in batch
+                for b in range(batch_size):
+                    recon_dict_list[:, 0][b]['nrmse_wrt_ref'][i] = ref_rmse[b, 0]
+                    recon_dict_list[:, 0][b]['bias_wrt_ref'][i] = ref_rmse[b, 1]
+                    recon_dict_list[:, 0][b]['sd_wrt_ref'][i] = ref_rmse[b, 2]
+
+                    if recon_dict_list[:, 0][b]['nrmse_wrt_ref'][i] == \
+                        min(recon_dict_list[:, 0][b]['nrmse_wrt_ref'][:]):
+                        recon_dict_list[:, 0][b]['best_nrmse_wrt_ref'] = \
+                            recon_dict_list[:, 0][b]['nrmse_wrt_ref'][i]
+                        recon_dict_list[:, 0][b]['best_mod_wrt_ref'] = i + 1
+                        recon_dict_list[:, 0][b]['best_recon_wrt_ref'] = \
+                            temp_img[b].detach().cpu().numpy()
+
+                    recon_dict_list[:, 0][b]['nrmse_wrt_gt'][i] = gt_rmse[b, 0]
+                    recon_dict_list[:, 0][b]['bias_wrt_gt'][i] = gt_rmse[b, 1]
+                    recon_dict_list[:, 0][b]['sd_wrt_gt'][i] = gt_rmse[b, 2]
+
+                    if recon_dict_list[:, 0][b]['nrmse_wrt_gt'][i] == \
+                        min(recon_dict_list[:, 0][b]['nrmse_wrt_gt'][:]):
+                        recon_dict_list[:, 0][b]['best_nrmse_wrt_gt'] = \
+                            recon_dict_list[:, 0][b]['nrmse_wrt_gt'][i]
+                        recon_dict_list[:, 0][b]['best_mod_wrt_gt'] = i + 1
+                        recon_dict_list[:, 0][b]['best_recon_wrt_gt'] = \
+                            temp_img[b].detach().cpu().numpy()
+
+                    # If output of final module
+                    if i == self.n_mods - 1:
+                        recon_dict_list[:, 0][b]['final_recon'] = \
+                            temp_img[b].detach().cpu().numpy()
+                        recon_dict_list[:, 0][b]['final_nrmse_wrt_ref'] = \
+                            recon_dict_list[:, 0][b]['nrmse_wrt_ref'][-1]
+                        recon_dict_list[:, 0][b]['final_nrmse_wrt_gt'] = \
+                            recon_dict_list[:, 0][b]['nrmse_wrt_gt'][-1]
+
+                    if self.to_convergence:
+                        rel_error = np.mean(np.abs(temp_img[b].detach().cpu().numpy() -
+                            img[b].detach().cpu().numpy())) / np.mean(
+                                img[b].detach().cpu().numpy())
+                        recon_dict_list[:, 1][b] = np.append(recon_dict_list[:, 1][b], rel_error)
+                        if i > 10 and np.mean(recon_dict_list[:, 1][b][-10:]) < 1e-4:
+                            recon_dict_list[:, 0][b]['n_mods'] = i + 1
+                            img = temp_img
+
+            img = temp_img
 
         if target != None:
-            recon_dict['final_recon'] = img.detach().cpu().numpy()
-            recon_dict['final_nrmse_wrt_ref'] = nrmse(img, target[0])
-            recon_dict['final_nrmse_wrt_gt'] = nrmse(img, target[1])
-            return img, recon_dict
+            return img, recon_dict_list
         else:
             return img
 
@@ -232,19 +244,16 @@ def train_fbsem(model, train_loader, val_loader, model_name='', save_dir='',
     model = model.to(device)
     loss_func = nn.MSELoss()
     optimiser = torch.optim.Adam(model.parameters(), lr=lr)
-
     train_loss = list()
     val_loss = list()
     beta_var = list()
     training_models = list()
     best_model = copy.deepcopy(model)
-
     t0 = time.time()
     for e in range(epochs):
         t1 = time.time()
         epoch_train_loss = list()
         epoch_val_loss = list()
-
         # Training loop
         model.train()
         for i, sample in enumerate(train_loader):
@@ -255,9 +264,9 @@ def train_fbsem(model, train_loader, val_loader, model_name='', save_dir='',
             # robust to noise in the data.
             n_realisations = sample['noisy_sino'].shape[2]
             idx = random.randint(0, n_realisations - 1)
-            sino = sample['noisy_sino'][:, :, idx, :, :].float().to(device)
-            sino = torch.unsqueeze(sino, 2)
-            target = sample['HD_target'].float().to(device)
+            sino = sample['noisy_sino'][:, :, idx, :, :].float().unsqueeze(2).to(device)
+            batch_size = sino.shape[0]
+            target = sample['HD_target'].float().unsqueeze(2).to(device)
             if model.regulariser.in_channels == 1:
                 mr = None
             else:
@@ -275,7 +284,6 @@ def train_fbsem(model, train_loader, val_loader, model_name='', save_dir='',
             epochs, round(train_loss[-1], 6), round(time.time()-t1, 2)))
         print('beta = {}.'.format(model.beta.clone().detach().cpu().numpy()))
         beta_var.append(model.beta.clone().detach().cpu().numpy())
-
         # Save model to list of training models
         checkpt = dict()
         checkpt['state_dict'] = model.state_dict()
@@ -354,8 +362,6 @@ def test_fbsem(model, test_loader, model_name='', save_dir='', mr_scale=1):
     with torch.no_grad():
         model.eval()
         for i, sample in enumerate(test_loader):
-            # We validate on a static set, so now we use the same noisy
-            # realisation each time
             sino = sample['noisy_sino'].float().to(device)
             target = sample['HD_target'].float().to(device)
             ground_truth = sample['pet_gt'].float().to(device)
@@ -369,18 +375,14 @@ def test_fbsem(model, test_loader, model_name='', save_dir='', mr_scale=1):
                 ground_truth))
             batch_size = sino.shape[0]
             for b in range(batch_size):
-                test_results['noisy_sino'] = sino[b, :, :, :, :]
-                test_results['HD_target'] = target[b, :, :, :].detach().cpu().numpy()
-                test_results['pet_gt'] = ground_truth[b, :, :, :].detach().cpu().numpy()
-                test_results['HD_counts'] = sample['HD_counts'][b]
-                test_results['LD_counts'] = sample['LD_counts'][b]
-                test_results['mlem_iters'] = sample['mlem_iters'][b]
-                test_results['factor'] = sample['factor'][b]
-                test_results['final_recon'] = output[b, :, :, :, :].detach().cpu().numpy()
-                test_results['final_nrmse_wrt_ref'] = nrmse(output[b, :, :, :, :].unsqueeze(0), target[b, :, :, :].unsqueeze(0))
-                test_results['final_nrmse_wrt_gt'] = nrmse(output[b, :, :, :, :].unsqueeze(0), ground_truth[b, :, :, :].unsqueeze(0))
-                results.append(test_results)
-
+                test_results[:, 0][b]['noisy_sino'] = sino[b, :, :, :, :].detach().cpu().numpy()
+                test_results[:, 0][b]['HD_target'] = target[b, :, :, :].detach().cpu().numpy()
+                test_results[:, 0][b]['pet_gt'] = ground_truth[b, :, :, :].detach().cpu().numpy()
+                test_results[:, 0][b]['HD_counts'] = sample['HD_counts'][b]
+                test_results[:, 0][b]['LD_counts'] = sample['LD_counts'][b]
+                test_results[:, 0][b]['mlem_iters'] = sample['mlem_iters'][b]
+                test_results[:, 0][b]['factor'] = sample['factor'][b]
+                results.append(test_results[b])
 
     torch.save(results, save_dir + model_name + '_test_results.pth')
     return results
