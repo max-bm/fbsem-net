@@ -33,6 +33,10 @@ class FBSEMNet(nn.Module):
     n_mods: int
         Number of modules in the overall RNN.
 
+    n_beta: int
+        Number of beta sub-parameters, such that
+        beta = product(b_1, b_2, ..., b_n)
+
     fixed_beta: float
         Fixed fusion coefficient. False by default, giving random and
         learnable fusion coefficient.
@@ -47,13 +51,13 @@ class FBSEMNet(nn.Module):
         Learnable fusion weight.
     """
     def __init__(self, system_model: PETSystemModel, regulariser, n_mods: int,
-        fixed_beta = False, to_convergence=None):
+        n_beta = 10, fixed_beta = False, to_convergence=None):
         super(FBSEMNet, self).__init__()
         self.system_model = system_model
         self.regulariser = regulariser
         self.n_mods = n_mods
         self.to_convergence = to_convergence
-        self.register_parameter(name='beta', param=nn.Parameter(torch.rand(1),
+        self.register_parameter(name='beta', param=nn.Parameter(torch.rand(n_beta),
             requires_grad=True))
         if isinstance(fixed_beta, float):
             self.beta.data = torch.Tensor([fixed_beta])
@@ -125,7 +129,7 @@ class FBSEMNet(nn.Module):
                 img_size[-1]).transpose(1, 2)
             # Fusion block - parallelised in fusion function definition
             temp_img = fbsem_fusion(out_em, out_reg,
-                inv_sens_img, self.beta)
+                inv_sens_img, torch.abs(torch.prod(self.beta)))
 
             if target != None:
                 ref_rmse = batch_rmse(temp_img, target[0])
@@ -201,9 +205,9 @@ def fbsem_fusion(out_em: torch.Tensor, out_reg: torch.Tensor,
     beta: torch.Parameter
         Learnable fusion weight.
     """
-    return 2 * out_em / (1 - beta**2 * inv_sens_img * out_reg + \
-        torch.sqrt((1 - beta**2 * inv_sens_img * out_reg)**2 + \
-            4 * beta**2 * inv_sens_img * out_em))
+    return 2 * out_em / (1 - beta * inv_sens_img * out_reg + \
+        torch.sqrt((1 - beta * inv_sens_img * out_reg)**2 + \
+            4 * beta * inv_sens_img * out_em))
 
 
 def train_fbsem(model, train_loader, val_loader, model_name='', save_dir='',
@@ -283,6 +287,7 @@ def train_fbsem(model, train_loader, val_loader, model_name='', save_dir='',
         print('Epoch {}/{}: Training loss = {}, Time/epoch = {}s.'.format(e+1,
             epochs, round(train_loss[-1], 6), round(time.time()-t1, 2)))
         print('beta = {}.'.format(model.beta.clone().detach().cpu().numpy()))
+        print('beta = {}.'.format(torch.prod(model.beta.clone().detach().cpu()).numpy()))
         beta_var.append(model.beta.clone().detach().cpu().numpy())
         # Save model to list of training models
         checkpt = dict()
@@ -299,7 +304,7 @@ def train_fbsem(model, train_loader, val_loader, model_name='', save_dir='',
                 # realisation each time
                 sino = sample['noisy_sino'][:, :, 0, :, :].float().to(device)
                 sino = torch.unsqueeze(sino, 2)
-                target = sample['HD_target'].float().to(device)
+                target = sample['HD_target'].float().unsqueeze(2).to(device)
                 if model.regulariser.in_channels == 1:
                     mr = None
                 else:
