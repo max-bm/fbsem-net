@@ -8,7 +8,55 @@ from torch._C import Value
 import torch.nn as nn
 import torch.nn.functional as F
 
-class PatchEmbedding(nn.Module):
+class SimplePatching(nn.Module):
+    """
+    Splits input image into patches (tokens) with no embedding.
+
+    Parameters
+    ----------
+    img_size: int
+        Size of the (square) image.
+
+    patch_size: int
+        Size of the (square) patches.
+
+    in_channels: int
+        Number of input channels. Greyscale = 1.
+
+    Attributes
+    ----------
+    n_patches: int
+        Number of patches.
+    """
+    def __init__(self, img_size=144, patch_size=4):
+        super(SimplePatching, self).__init__()
+        self.img_size = img_size
+        self.patch_size = patch_size
+        self.in_channels = 1 # Simple patching requires only PET data inputs
+        self.n_patches = (img_size // patch_size) ** 2
+
+    def forward(self, img):
+        """
+        Forward pass.
+
+        Parameters
+        ----------
+        img: torch.Tensor
+            Input image to be split into simple patches.
+            Shape: (batch_size, in_channels, img_size, img_size).
+
+        Returns
+        -------
+        torch.Tensor
+            Non-embedded patches.
+            Shape: (batch_size, n_patches, patch_size**2).
+        """
+        batch_size = img.shape[0]
+        return img.unfold(2, self.patch_size, self.patch_size).unfold(3,
+            self.patch_size, self.patch_size).reshape(batch_size, -1, self.patch_size**2)
+
+
+class LearnedPatching(nn.Module):
     """
     Splits input image into patches (tokens) and embeds them into 'arbitrary' dimension.
 
@@ -16,7 +64,7 @@ class PatchEmbedding(nn.Module):
     ----------
     img_size: int
         Size of the (square) image.
-    
+
     patch_size: int
         Size of the (square) patches.
 
@@ -35,15 +83,15 @@ class PatchEmbedding(nn.Module):
         Convolutional layer that performs splitting and embedding.
     """
     def __init__(self, img_size=144, patch_size=16, in_channels=1, embedding_dim=256):
-        super(PatchEmbedding, self).__init__()
+        super(LearnedPatching, self).__init__()
         self.img_size = img_size
         self.patch_size = patch_size
         self.n_patches = (img_size // patch_size) ** 2
 
         self.embedding_proj = nn.Conv2d(
-            in_channels, 
-            embedding_dim, 
-            kernel_size=patch_size, 
+            in_channels,
+            embedding_dim,
+            kernel_size=patch_size,
             stride=patch_size)
 
     def forward(self, img):
@@ -69,7 +117,53 @@ class PatchEmbedding(nn.Module):
         return out
 
 
-class PatchMerging(nn.Module):
+class SimpleMerging(nn.Module):
+    """
+    Merges unembedded patches/tokens into single image.
+
+    Parameters
+    ----------
+    img_size: int
+        Size of the (square) image.
+
+    patch_size: int
+        Size of the (square) patches.
+
+    in_channels: int
+        Number of input channels. Greyscale = 1.
+    """
+    def __init__(self, img_size=144, patch_size=4, in_channels=1):
+        super(SimpleMerging, self).__init__()
+        self.img_size = img_size
+        self.patch_size = patch_size
+        self.in_channels = in_channels
+        self.n_patches = (img_size // patch_size) ** 2
+
+    def forward(self, x):
+        """
+        Forward pass.
+
+        Parameters
+        ----------
+        x: torch.Tensor
+            Image tokens to merge into image.
+            Shape: (batch_size, n_patches, embedding_dim).
+
+        Returns
+        -------
+        torch.Tensor
+            Reconstructed image.
+            Shape: (batch_size, in_channels, img_size, img_size).
+        """
+        batch_size = x.shape[0]
+        x = x.contiguous().view(batch_size, self.in_channels, -1, self.patch_size * self.patch_size)
+        x = x.permute(0, 1, 3, 2)
+        x = x.contiguous().view(batch_size, self.in_channels * self.patch_size * self.patch_size, -1)
+        x = F.fold(x, output_size=(self.img_size, self.img_size), kernel_size=self.patch_size, stride=self.patch_size)
+        return x
+
+
+class LearnedMerging(nn.Module):
     """
     Merges separate image patches/tokens into single image.
 
@@ -77,7 +171,7 @@ class PatchMerging(nn.Module):
     ----------
     img_size: int
         Size of the (square) image.
-    
+
     patch_size: int
         Size of the (square) patches.
 
@@ -86,14 +180,15 @@ class PatchMerging(nn.Module):
 
     embedding_dim: int
         Size of arbitrary embedding dimension.
-    
+
     Attributes
     ----------
-
+    unembedding_proj: nn.Linear
+        Projection from token space to patch space.
 
     """
     def __init__(self, img_size=144, patch_size=16, in_channels=1, embedding_dim=256):
-        super(PatchMerging, self).__init__()
+        super(LearnedMerging, self).__init__()
         self.img_size = img_size
         self.patch_size = patch_size
         self.in_channels = in_channels
@@ -118,11 +213,59 @@ class PatchMerging(nn.Module):
         """
         batch_size = x.shape[0]
         x = self.unembedding_proj(x) # Unembed tokens. (batch_size, n_patches, in_channels * patch_size**2)
-        x = x.view(batch_size, self.in_channels, self.img_size, self.img_size)
-        x = x.unfold(2, self.patch_size, self.patch_size).unfold(3, self.patch_size, self.patch_size)
-        x = x.reshape(batch_size, self.in_channels, self.img_size, self.img_size)
-
+        x = x.contiguous().view(batch_size, self.in_channels, -1, self.patch_size * self.patch_size)
+        x = x.permute(0, 1, 3, 2)
+        x = x.contiguous().view(batch_size, self.in_channels * self.patch_size * self.patch_size, -1)
+        x = F.fold(x, output_size=(self.img_size, self.img_size), kernel_size=self.patch_size, stride=self.patch_size)
         return x
+
+
+class ParameterlessMSA(nn.Module):
+    """
+    Multi-headed self-attention mechanism with no learnable parameters.
+
+    Parameters
+    ----------
+
+    n_heads: int
+        Number of attention heads.
+    """
+    def __init__(self, n_heads=1):
+        super(ParameterlessMSA, self).__init__()
+        self.n_heads = n_heads
+        self.softmax = nn.Softmax(dim=-1)
+
+    def forward(self, tkn):
+        """
+        Forward pass.
+
+        Parameters
+        ----------
+        tkn: torch.Tensor
+            Input image token.
+            Shape: (batch_size, n_tkns, embedding_dim)
+
+        Returns
+        -------
+        torch.Tensor
+            Embedded concatenation of attention head outputs.
+            Shape: (batch_size, n_tkns, embedding_dim)
+        """
+        batch_size, n_tkns, embedding_dim = tkn.shape
+        head_dim = embedding_dim // self.n_heads
+        scale = head_dim ** -0.5
+        tkn = tkn.reshape(batch_size, n_tkns, self.n_heads, head_dim)
+        tkn = tkn.permute(0, 2, 1, 3) # (batch_size, n_heads, n_tkns, head_dim)
+        q, k, v = tkn, tkn, tkn
+
+        print(q.shape)
+        attn = (q @ k.transpose(-2, -1)) * scale # (batch_size, n_heads, n_tkns, n_tkns)
+        attn = self.softmax(attn) # (batch_size, n_heads, n_tkns, n_tkns)
+        # attn now acts as weights for simple weighted sum of similar pixels/patches.
+        out = attn @ v # (batch_size, n_heads, n_tkns, head_dim)
+        out = out.transpose(1, 2) # (batch_size, n_tkns, n_heads, head_dim)
+        out = out.reshape(batch_size, n_tkns, embedding_dim) # (batch_size, n_tkns, embedding dim)
+        return out
 
 
 class MSA(nn.Module):
@@ -148,6 +291,9 @@ class MSA(nn.Module):
 
     Attributes
     ----------
+    head_dim: float
+        Embedding dimension through heads so that concatenated outputs are correct shape.
+
     qk_scale: float
         Normalising constant for qk dot product.
 
@@ -203,8 +349,7 @@ class MSA(nn.Module):
         out = out.transpose(1, 2) # (batch_size, n_tkns, n_heads, head_dim)
         out = out.reshape(batch_size, n_tkns, embedding_dim) # (batch_size, n_tkns, embedding dim)
         out = self.proj(out) # (batch_size, n_tkns, embedding_dim)
-        out = self.proj_drop(out) # Projection dropout)
-
+        out = self.proj_drop(out) # Projection dropout
         return out
 
 
@@ -216,7 +361,7 @@ class MLP(nn.Module):
     ----------
     in_features: int
         Number of input features.
-    
+
     hidden_features: int
         Number of nodes in the hidden layer.
 
@@ -276,7 +421,7 @@ class TransformerEncoder(nn.Module):
     ----------
     embedding_dim: int
         Embedding dimension of 'tokens'.
-    
+
     n_heads: int
         Number of attention heads.
 
@@ -342,7 +487,7 @@ class VisionTransformer(nn.Module):
 
     in_channels: int
         Number of input channels. Greyscale = 1.
-    
+
     embedding_dim: int
         Dimensionality of token/patch embeddings.
 
@@ -381,16 +526,16 @@ class VisionTransformer(nn.Module):
     patch_unembed: PatchUnembedding
         Layer to merge patches into reconstructed image.
     """
-    def __init__(self, img_size=144, patch_size=16, in_channels=1, embedding_dim=256, depth=12, 
+    def __init__(self, img_size=144, patch_size=16, in_channels=1, embedding_dim=256, depth=12,
                  n_heads=12, mlp_ratio=4., qkv_bias=True, drop=0., attn_drop=0.):
         super(VisionTransformer, self).__init__()
-        self.patch_embed = PatchEmbedding(img_size, patch_size, in_channels, embedding_dim)
+        self.patch_embed = LearnedPatching(img_size, patch_size, in_channels, embedding_dim)
         self.pos_embed = nn.Parameter(torch.zeros(1, self.patch_embed.n_patches, embedding_dim))
         self.pos_drop = nn.Dropout(drop)
         self.blocks = nn.ModuleList(
             [TransformerEncoder(embedding_dim, n_heads, mlp_ratio, qkv_bias, drop, attn_drop) for i in range(depth)])
         self.norm = nn.LayerNorm(embedding_dim, 1e-6)
-        self.patch_merge = PatchMerging(img_size, patch_size, in_channels, embedding_dim)
+        self.patch_merge = LearnedMerging(img_size, patch_size, in_channels, embedding_dim)
         self.in_channels = in_channels
 
     def forward(self, x, _):
@@ -422,4 +567,3 @@ class VisionTransformer(nn.Module):
         x = self.patch_merge(x) # Marge patches back together
 
         return x
-
