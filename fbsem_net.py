@@ -37,6 +37,10 @@ class FBSEMNet(nn.Module):
         Number of beta sub-parameters, such that
         beta = product(b_1, b_2, ..., b_n)
 
+    beta_mode: str
+        Method by which beta is forced positive.
+        Valid: abs, square.
+
     fixed_beta: float
         Fixed fusion coefficient. False by default, giving random and
         learnable fusion coefficient.
@@ -51,11 +55,12 @@ class FBSEMNet(nn.Module):
         Learnable fusion weight.
     """
     def __init__(self, system_model: PETSystemModel, regulariser, n_mods: int,
-        n_beta = 10, fixed_beta = False, to_convergence=None):
+        n_beta = 10, beta_mode='abs', fixed_beta = False, to_convergence=None):
         super(FBSEMNet, self).__init__()
         self.system_model = system_model
         self.regulariser = regulariser
         self.n_mods = n_mods
+        self.beta_mode = beta_mode
         self.to_convergence = to_convergence
         self.register_parameter(name='beta', param=nn.Parameter(torch.rand(n_beta),
             requires_grad=True))
@@ -128,8 +133,12 @@ class FBSEMNet(nn.Module):
             out_reg = out_reg.view(batch_size, n_realisations, 1, img_size[-1],
                 img_size[-1]).transpose(1, 2)
             # Fusion block - parallelised in fusion function definition
-            temp_img = fbsem_fusion(out_em, out_reg,
-                inv_sens_img, torch.abs(torch.prod(self.beta)))
+            if self.beta_mode == 'abs':
+                temp_img = fbsem_fusion(out_em, out_reg,
+                    inv_sens_img, torch.abs(torch.prod(self.beta)))
+            elif self.beta_mode == 'square':
+                temp_img = fbsem_fusion(out_em, out_reg,
+                    inv_sens_img, torch.square(torch.prod(self.beta)))
 
             if target != None:
                 ref_rmse = batch_rmse(temp_img, target[0])
