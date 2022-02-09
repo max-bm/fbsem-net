@@ -52,7 +52,7 @@ class SimplePatching(nn.Module):
             Shape: (batch_size, n_patches, patch_size**2).
         """
         batch_size = img.shape[0]
-        return img.unfold(2, self.patch_size, self.patch_size).unfold(3,
+        return img.unfold(3, self.patch_size, self.patch_size).unfold(4,
             self.patch_size, self.patch_size).reshape(batch_size, -1, self.patch_size**2)
 
 
@@ -113,7 +113,6 @@ class LearnedPatching(nn.Module):
         out = self.embedding_proj(img) # (batch_size, embedding_dim, n_patches ** 0.5, n_patches ** 0.5)
         out = out.flatten(2) # (batch_size, embedding_dim, n_patches)
         out = out.transpose(1, 2) # (batch_size, n_patches, embedding_dim)
-
         return out
 
 
@@ -220,22 +219,26 @@ class LearnedMerging(nn.Module):
         return x
 
 
-class ParameterlessMSA(nn.Module):
+class SimpleMSA(nn.Module):
     """
     Multi-headed self-attention mechanism with no learnable parameters.
 
     Parameters
     ----------
-
     n_heads: int
         Number of attention heads.
+
+    Attributes
+    ----------
+    softmax: nn.Softmax
+        Softmax layer for normalisation of attention weights.
     """
     def __init__(self, n_heads=1):
-        super(ParameterlessMSA, self).__init__()
+        super(SimpleMSA, self).__init__()
         self.n_heads = n_heads
         self.softmax = nn.Softmax(dim=-1)
 
-    def forward(self, tkn):
+    def forward(self, tkn, scale):
         """
         Forward pass.
 
@@ -253,14 +256,14 @@ class ParameterlessMSA(nn.Module):
         """
         batch_size, n_tkns, embedding_dim = tkn.shape
         head_dim = embedding_dim // self.n_heads
-        scale = head_dim ** -0.5
         tkn = tkn.reshape(batch_size, n_tkns, self.n_heads, head_dim)
         tkn = tkn.permute(0, 2, 1, 3) # (batch_size, n_heads, n_tkns, head_dim)
         q, k, v = tkn, tkn, tkn
+        q = q.repeat(1, 1, n_tkns, 1).view(batch_size, 1, n_tkns, n_tkns, head_dim)
+        k = k.repeat(1, 1, 1, n_tkns).view(batch_size, 1, n_tkns, n_tkns, head_dim)
 
-        print(q.shape)
-        attn = (q @ k.transpose(-2, -1)) * scale # (batch_size, n_heads, n_tkns, n_tkns)
-        attn = self.softmax(attn) # (batch_size, n_heads, n_tkns, n_tkns)
+        attn = torch.square(q - k).mean(dim=-1) / scale # (batch_size, n_heads, n_tkns, n_tkns)
+        attn = self.softmax(-attn) # (batch_size, n_heads, n_tkns, n_tkns)
         # attn now acts as weights for simple weighted sum of similar pixels/patches.
         out = attn @ v # (batch_size, n_heads, n_tkns, head_dim)
         out = out.transpose(1, 2) # (batch_size, n_tkns, n_heads, head_dim)
@@ -473,6 +476,78 @@ class TransformerEncoder(nn.Module):
         return x
 
 
+class SimpleVisionTransformer(nn.Module):
+    """
+    Simple Vision Transformer network architecture.
+
+    Parameters
+    ----------
+    img_size: int
+        Height and width of square input image.
+
+    patch_size: int
+        Height and width of square patch size.
+
+    n_heads: int
+        Number of attention heads per block.
+
+    in_channels: int
+        Number of input channels. Greyscale = 1.
+
+    scale: bool
+        Toggle for learned softmax scaling. Default = False.
+
+    Attributes
+    ----------
+    patching: SimplePatching
+        Layer to compute simple patching of image.
+
+    msa: SimpleMSA
+        Layer for simple multi-headed self attention.
+
+    patch_merge: SimpleMerging
+        Layer to merge patches into reconstructed image.
+
+    scale: nn.Parameter
+        Learned scaling parameter for softmax.
+    """
+    def __init__(self, img_size=144, patch_size=1, n_heads=1, in_channels=1, scale=False):
+        super(SimpleVisionTransformer, self).__init__()
+        self.patching = SimplePatching(img_size, patch_size)
+        self.msa = SimpleMSA(n_heads=n_heads)
+        self.patch_merge = SimpleMerging(img_size, patch_size, in_channels=in_channels)
+        self.in_channels = in_channels
+        if scale:
+            self.scale = nn.Parameter(torch.rand(1), requires_grad=True)
+        else:
+            self.scale = 1.
+
+    def forward(self, x, _):
+        """
+        Forward pass of image through Simple Vision Transformer.
+
+        Parameters
+        ----------
+        x: torch.Tensor
+            Input image.
+            Shape: (batch_size, in_channels, img_size, img_size).
+
+        Returns
+        -------
+        torch.Tensor
+            'Reconstructed' image.
+            Shape: (batch_size, in_channels, img_size, img_size).
+        """
+        x_max = x.max()
+        # Scale the image
+        x = x / x_max
+        x = self.patching(x) # (batch_size, n_tkns, embedding_dim)
+        x = self.msa(x, self.scale)
+        x = self.patch_merge(x) # Marge patches back together
+        x = x * x_max
+        return x
+
+
 class VisionTransformer(nn.Module):
     """
     Vision Transformer network architecture.
@@ -558,12 +633,10 @@ class VisionTransformer(nn.Module):
         x = x + self.pos_embed # (batch_size, n_tkns, embedding_dim)
         x = self.pos_drop(x)
         shortcut = x # Residual connection around Transformer encoder blocks
-
         for block in self.blocks:
             x = block(x)
 
         x = x + shortcut
         x = self.norm(x) # LayerNorm not in 16x16 paper
         x = self.patch_merge(x) # Marge patches back together
-
         return x
