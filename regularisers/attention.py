@@ -1,10 +1,9 @@
 """
 Author: Maxwell Buckmire-Monro
-maxwell.monro@kcl.ac.uk
+maxbuckmiremonro@gmail.com
 """
 
 import torch
-from torch._C import Value
 import torch.nn as nn
 import torch.nn.functional as F
 

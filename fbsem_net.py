@@ -1,6 +1,6 @@
 """
 Author: Maxwell Buckmire-Monro
-maxwell.monro@kcl.ac.uk
+maxbuckmiremonro@gmail.com
 """
 
 import torch
@@ -91,7 +91,7 @@ class FBSEMNet(nn.Module):
             Reconstruction data.
         """
         device = 'cpu' if sino.get_device() == -1 else sino.get_device()
-        # If testing, create test dictionary
+        # If testing, create test results dictionary
         batch_size = sino.shape[0]
         if target != None:
             recon_dict = dict()
@@ -112,6 +112,7 @@ class FBSEMNet(nn.Module):
                 copy.deepcopy(mse_tracker)] for b in range(batch_size)])
 
         n_realisations = sino.shape[2]
+        # Generate sensitivity image(s)
         sens_img = self.system_model.backward_model(
             torch.ones_like(sino[0, 0, 0, :, :])).to(device).float()
         sens_mask = (sens_img != 0)
@@ -278,7 +279,6 @@ def train_fbsem(model, train_loader, val_loader, model_name='', save_dir='',
             n_realisations = sample['noisy_sino'].shape[2]
             idx = random.randint(0, n_realisations - 1)
             sino = sample['noisy_sino'][:, :, idx, :, :].float().unsqueeze(2).to(device)
-            batch_size = sino.shape[0]
             target = sample['HD_target'].float().unsqueeze(2).to(device)
             if model.regulariser.in_channels == 1:
                 mr = None
