@@ -1,6 +1,6 @@
 """
 Author: Maxwell Buckmire-Monro
-maxwell.monro@kcl.ac.uk
+maxbuckmiremonro@gmail.com
 """
 
 import torch
@@ -9,7 +9,8 @@ from torch_pet.system_model.pet_system_model import PETSystemModel
 class ForwardModel(torch.autograd.Function):
     """
     A class which defines a differentiable forward model for a given PET system
-    model.
+    model. Mathematically, the backward pass through the system forward model is 
+    the system backward model.
     """
     @staticmethod
     def forward(ctx, img: torch.Tensor, system_model: PETSystemModel):
@@ -42,7 +43,8 @@ class ForwardModel(torch.autograd.Function):
 class BackwardModel(torch.autograd.Function):
     """
     A class which defines a differentiable backward model for a given PET system
-    model.
+    model. Mathematically, the backward pass through the system backward model is 
+    the system forward model.
     """
     @staticmethod
     def forward(ctx, sino: torch.Tensor, system_model: PETSystemModel):

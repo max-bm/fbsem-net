@@ -1,10 +1,9 @@
 """
 Author: Maxwell Buckmire-Monro
-maxwell.monro@kcl.ac.uk
+maxbuckmiremonro@gmail.com
 """
 
 import torch
-import torch.nn as nn
 import numpy as np
 import matplotlib.pyplot as plt
 from torch_pet.system_model.pet_system_model import PETSystemModel
@@ -33,7 +32,7 @@ class DictDataset(torch.utils.data.Dataset):
 def em_update(img: torch.Tensor, sino: torch.Tensor, sens_img: torch.Tensor,
     system_model: PETSystemModel):
     """
-    Function which computes a single EM update.
+    Function to compute a single EM update.
 
     Parameters
     ----------
@@ -59,19 +58,24 @@ def em_update(img: torch.Tensor, sino: torch.Tensor, sens_img: torch.Tensor,
     device = 'cpu' if img.get_device() == -1 else img.get_device()
     batch_size = img.shape[0]
     n_realisations = img.shape[2]
+    # Define sensitivity image for each image in batch and realisations.
     sens_img = sens_img.view(1, 1, 1, img.shape[-2], img.shape[-1])
     sens_img = sens_img.repeat(batch_size, 1, n_realisations, 1, 1)
     forwardprojection = torch.zeros_like(sino).to(device).float()
+    # Loop through images and forward project into sino space.
     for b in range(batch_size):
         for r in range(n_realisations):
             forwardprojection[b, 0, r, :, :] = forward_model(img[b, 0, r, :, :], system_model)
+    # Find ratio sinograms by dividing for non-zero forward projections.
     fp_mask = (forwardprojection != 0)
     ratio_sino = torch.zeros_like(sino).to(device).float()
     ratio_sino[fp_mask] = sino [fp_mask] / forwardprojection[fp_mask]
     backprojection = torch.zeros_like(img).to(device).float()
+    # Loop through ratio sinos and back project into image space.
     for b in range(batch_size):
         for r in range(n_realisations):
             backprojection[b, 0, r, :, :] = backward_model(ratio_sino[b, 0, r, :, :], system_model)
+    # Find updated image by dividing for non-zero back projections.
     bp_mask = (backprojection != 0)
     updated_img = torch.zeros_like(img).to(device).float()
     updated_img[bp_mask] = \
@@ -98,15 +102,18 @@ def batch_rmse(recons: torch.Tensor, targets: torch.Tensor):
         RMSE, bias and standard deviation of recons compared to targets.
     """
     recons = recons.detach().cpu().numpy()
+    batch_size = recons.shape[0]
     targets = targets.detach().cpu().numpy()
+    # Define mean image over realisations and repeat for vectorisation.
     mean_img = np.mean(recons, axis=2)
     repeat_mean_img = np.repeat(mean_img[:, :, np.newaxis, :, :],
         recons.shape[2], axis=2)
+    # Calculate bias of reconstructed images.
     bias = np.sqrt(np.sum(np.square(mean_img - targets), axis=(1, 2, 3)) /
         np.sum(np.square(targets), axis=(1, 2, 3)))
+    # Calculate standard devisation of reconstructed images.
     std_dev = np.sqrt(np.mean(np.sum(np.square(repeat_mean_img - recons),
         axis=(1, 3, 4)), axis=1) / np.sum(np.square(targets), axis=(1, 2, 3)))
-    batch_size = recons.shape[0]
     return np.array([[np.sqrt(bias[b]**2 + std_dev[b]**2), bias[b], std_dev[b]] for b in range(batch_size)])
 
 

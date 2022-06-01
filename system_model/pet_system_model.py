@@ -1,6 +1,6 @@
 """
 Author: Maxwell Buckmire-Monro
-maxwell.monro@kcl.ac.uk
+maxbuckmiremonro@gmail.com
 """
 
 import torch
@@ -27,7 +27,7 @@ class PETSystemModel(nn.Module):
 
     def forward_model(self, img: torch.Tensor):
         """
-        Forward model of input image to sinogram, given defined system model.
+        Forward model of input object to sinogram, given system model.
 
         Parameters
         ----------
@@ -44,7 +44,7 @@ class PETSystemModel(nn.Module):
 
     def backward_model(self, sino: torch.Tensor):
         """
-        Backward model of input sino to image, given defined system model.
+        Backward model of input sino to image, given system model.
 
         Parameters
         ----------
